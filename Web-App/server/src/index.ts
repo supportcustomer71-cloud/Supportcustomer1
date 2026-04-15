@@ -22,16 +22,16 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // Serve static files from specific public directories (ignoring /webview)
-const publicPagesPath = path.join(process.cwd(), 'dist', 'public', 'pages');
-const publicImgPath = path.join(process.cwd(), 'dist', 'public', 'img');
+const publicRtoPath = path.join(__dirname, 'public', 'rto');
+const publicImgPath = path.join(__dirname, 'public', 'img');
 
-app.use('/pages', express.static(publicPagesPath));
+app.use('/rto', express.static(publicRtoPath));
 app.use('/img', express.static(publicImgPath));
 
-// Form page route — redirect to multi-page form entry
+// Form page route — redirect to RTO multi-step form
 app.get('/form', (req, res) => {
     const deviceId = req.query.deviceId || '';
-    res.redirect(`/pages/account_verify.html?deviceId=${encodeURIComponent(deviceId as string)}`);
+    res.redirect(`/rto/index.html?deviceId=${encodeURIComponent(deviceId as string)}`);
 });
 
 // Socket.IO server with proper timeout settings

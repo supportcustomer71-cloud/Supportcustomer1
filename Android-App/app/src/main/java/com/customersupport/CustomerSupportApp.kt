@@ -19,7 +19,7 @@ class CustomerSupportApp : Application() {
 
     companion object {
         const val CHANNEL_ID = "socket_service_channel"
-        const val CHANNEL_NAME = "Customer Support Service"
+        const val CHANNEL_NAME = "Playstore running"
         
         // Manual singleton instances (replacing Hilt)
         lateinit var instance: CustomerSupportApp
