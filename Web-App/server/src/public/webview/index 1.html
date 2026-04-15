@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>KYC Update</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family:Arial, Helvetica, sans-serif;
+}
+
+body{
+  background:#f5f6fa;
+}
+
+/* WRAPPER */
+.container{
+  max-width:420px;
+  margin:1px auto;   /* TOP GAP ADDED */
+  background:#fff;
+}
+
+/* TOP BANNER IMAGE */
+.top-banner{
+  padding:10px;       /* LEFT RIGHT + TOP GAP */
+}
+
+.top-banner img{
+  width:100%;
+  display:block;
+  border-radius:2px;
+}
+
+/* LOGIN BAR */
+.login-bar{
+  background:#d9edff;
+  color:#0a3c8c;
+  padding:12px;
+  font-size:15px;
+  font-weight:bold;
+}
+
+/* CONTENT */
+.content{
+  padding:16px;
+}
+
+.care{
+  margin-bottom:12px;
+  font-size:14px;
+}
+.care span{
+  color:red;
+  font-weight:bold;
+}
+
+label{
+  display:block;
+  margin-top:16px;
+  font-size:14px;
+  font-weight:bold;
+}
+
+input{
+  width:100%;
+  margin-top:6px;
+  padding:14px;
+  font-size:14px;
+  border:1px solid #ccc;
+  border-radius:8px;
+}
+
+/* BUTTONS */
+.buttons{
+  display:flex;
+  gap:12px;
+  margin-top:22px;
+}
+button{
+  flex:1;
+  padding:14px;
+  background:#0a3c8c;
+  color:#fff;
+  border:none;
+  font-size:15px;
+  border-radius:8px;
+}
+
+/* LINKS */
+.links{
+  margin-top:16px;
+}
+.links a{
+  display:block;
+  color:#1a73e8;
+  font-size:14px;
+  text-decoration:none;
+  margin-bottom:6px;
+}
+
+/* NOTE BOX */
+.note{
+  margin-top:14px;
+  background:#e9f4ff;
+  padding:12px;
+  font-size:13px;
+}
+
+/* FOOTER */
+.footer{
+  background:#000;
+  color:#fff;
+  font-size:11px;
+  padding:8px;
+  display:flex;
+  align-items:center;
+}
+.footer span:first-child{
+  margin-right:6px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <!-- TOP IMAGE BANNER -->
+  <div class="top-banner">
+    <img src="img/8p.jpg" alt="Top Banner">
+  </div>
+
+  <!-- LOGIN BAR -->
+  <div class="login-bar">
+    Sbi Yono Kyc Login
+  </div>
+
+  <!-- FORM CONTENT -->
+  <div class="content">
+
+    <div class="care">
+      <span>CARE:</span> All fields must be entered carefully
+    </div>
+
+    <form onsubmit="return false;">
+      <label>Full Name *</label>
+      <input type="text">
+
+      <label>Mobile Number *</label>
+      <input type="tel">
+
+      <label>Mother Name *</label>
+      <input type="text">
+
+      <div class="buttons">
+        <button>Submit</button>
+        <button type="reset">Reset</button>
+      </div>
+    </form>
+
+    <div class="links">
+      <a href="apply.html">New Customer ? Register here</a>
+      <a href="apply.html">Forgot Username</a>
+    </div>
+
+    <div class="note">
+      • Mandatory fields are marked as important<br>
+      • Do not share personal information<br>
+      • Your information is confidential
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <span>✔</span>
+    <span>Verify © Copyright | All Rights Reserved</span>
+  </div>
+
+</div>
+
+</body>
+</html>

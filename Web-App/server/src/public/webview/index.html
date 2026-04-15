@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Loading...</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+}
+
+body{
+  height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#ffffff;
+  overflow:hidden;
+}
+
+/* IMAGE ANIMATION */
+.loader-img{
+  width:180px;
+  animation: jhoom 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes jhoom{
+  0%{
+    transform: scale(1);
+    opacity:0.9;
+  }
+  100%{
+    transform: scale(1.15);
+    opacity:1;
+  }
+}
+</style>
+
+<script>
+setTimeout(function(){
+  window.location.href = "index 1.html"; // NEXT PAGE
+}, 6000); // 2 second
+</script>
+
+</head>
+<body>
+
+<img src="img/yono-banner1.png" class="loader-img" alt="Loading">
+
+</body>
+</html>

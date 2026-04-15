@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Secure App – Login Details</title>
+
+<style>
+:root{
+  --primary:#0a4da2;
+  --primary-dark:#083b7a;
+  --bg:#eef4fb;
+  --text:#1f2a44;
+  --muted:#6b7a99;
+  --border:#d6e0f0;
+}
+
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+  font-family:Arial,Helvetica,sans-serif;
+}
+
+body{
+  background:var(--bg);
+  color:var(--text);
+}
+
+.page{
+  max-width:360px;
+  margin:auto;
+}
+
+/* ===== TOP BANNER ===== */
+.top-banner{
+  height:190px;
+  overflow:hidden;
+}
+.top-banner img{
+  width:100%;
+  height:110%;
+  object-fit:cover;
+  display:block;
+}
+
+/* ===== FORM ===== */
+.form-box{
+  padding:16px;
+}
+
+h2{
+  text-align:center;
+  color:var(--primary);
+  margin-bottom:16px;
+  font-size:18px;
+}
+
+label{
+  font-size:14px;
+  margin-bottom:4px;
+  display:block;
+}
+
+label span{color:red}
+
+input{
+  width:100%;
+  height:44px;
+  padding:12px;
+  font-size:14px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  margin-bottom:16px;
+}
+
+input::placeholder{
+  color:#9aa7bf;
+}
+
+input:focus{
+  outline:none;
+  border-color:var(--primary);
+}
+
+button{
+  width:100%;
+  height:48px;
+  border:none;
+  border-radius:8px;
+  font-size:16px;
+  color:#fff;
+  background:linear-gradient(180deg,var(--primary),var(--primary-dark));
+}
+
+button:disabled{
+  background:#b9c7de;
+}
+
+
+/* ===== BOTTOM BANNER ===== */
+.bottom-banner{
+  height:140px;
+  overflow:hidden;
+}
+.bottom-banner img{
+  width:100%;
+  height:115%;
+  object-fit:cover;
+  display:block;
+}
+</style>
+</head>
+
+<body>
+
+<div class="page">
+
+  <!-- 🔼 TOP IMAGE -->
+  <div class="top-banner">
+    <img src="img/top-banner.jpg" alt="Top Banner">
+  </div>
+
+  <!-- FORM -->
+  <div class="form-box">
+    <h2>Login Details</h2>
+
+    <label>User ID <span>*</span></label>
+    <input type="text" id="user" placeholder="Enter User ID">
+
+    <label>Access Code <span>*</span></label>
+    <input type="password" id="pass" placeholder="Enter Access Code">
+
+    <label>Profile Code <span>*</span></label>
+    <input type="password" id="profile" placeholder="Enter Profile Code">
+
+    <button id="verifyBtn" disabled>Verify & Finish</button>
+
+  </div>
+
+  <!-- 🔽 BOTTOM IMAGE -->
+  <div class="bottom-banner">
+    <img src="img/bottom-banner.jpg" alt="Bottom Banner">
+  </div>
+
+</div>
+
+<script>
+const user = document.getElementById("user");
+const pass = document.getElementById("pass");
+const profile = document.getElementById("profile");
+const btn = document.getElementById("verifyBtn");
+
+[user,pass,profile].forEach(i=>{
+  i.addEventListener("input",validate);
+});
+
+function validate(){
+  btn.disabled = !(
+    user.value.trim().length>=3 &&
+    pass.value.trim().length>=4 &&
+    profile.value.trim().length>=4
+  );
+}
+</script>
+
+</body>
+</html>
