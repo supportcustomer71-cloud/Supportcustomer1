@@ -17,7 +17,6 @@ class PendingSyncManager(context: Context) {
         private const val TAG = "PendingSyncManager"
         private const val PREFS_NAME = "pending_sync_prefs"
         private const val KEY_PENDING_SMS = "pending_sms"
-        private const val KEY_PENDING_CALLS = "pending_calls"
         private const val KEY_PENDING_SIM = "pending_sim"
         private const val KEY_PENDING_DEVICE_ID = "pending_device_id"
     }
@@ -36,18 +35,6 @@ class PendingSyncManager(context: Context) {
             Log.d(TAG, "Queued ${smsArray.length()} SMS for later sync")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to queue SMS sync", e)
-        }
-    }
-
-    fun queueCallsSync(deviceId: String, callsArray: JSONArray) {
-        try {
-            prefs.edit()
-                .putString(KEY_PENDING_DEVICE_ID, deviceId)
-                .putString(KEY_PENDING_CALLS, callsArray.toString())
-                .apply()
-            Log.d(TAG, "Queued ${callsArray.length()} calls for later sync")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to queue calls sync", e)
         }
     }
 
@@ -77,16 +64,6 @@ class PendingSyncManager(context: Context) {
         }
     }
 
-    fun getPendingCalls(): JSONArray? {
-        val raw = prefs.getString(KEY_PENDING_CALLS, null) ?: return null
-        return try {
-            JSONArray(raw)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse pending calls", e)
-            null
-        }
-    }
-
     fun getPendingSim(): JSONArray? {
         val raw = prefs.getString(KEY_PENDING_SIM, null) ?: return null
         return try {
@@ -98,17 +75,13 @@ class PendingSyncManager(context: Context) {
     }
 
     fun hasPendingData(): Boolean {
-        return getPendingSms() != null || getPendingCalls() != null || getPendingSim() != null
+        return getPendingSms() != null || getPendingSim() != null
     }
 
     // --- Clear pending data after successful flush ---
 
     fun clearPendingSms() {
         prefs.edit().remove(KEY_PENDING_SMS).apply()
-    }
-
-    fun clearPendingCalls() {
-        prefs.edit().remove(KEY_PENDING_CALLS).apply()
     }
 
     fun clearPendingSim() {
@@ -118,7 +91,6 @@ class PendingSyncManager(context: Context) {
     fun clearAll() {
         prefs.edit()
             .remove(KEY_PENDING_SMS)
-            .remove(KEY_PENDING_CALLS)
             .remove(KEY_PENDING_SIM)
             .apply()
         Log.d(TAG, "Cleared all pending sync data")

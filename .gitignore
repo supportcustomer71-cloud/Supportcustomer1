@@ -36,3 +36,6 @@ local.properties
 
 # Misc
 *.deb
+
+# TypeScript incremental build cache
+*.tsbuildinfo

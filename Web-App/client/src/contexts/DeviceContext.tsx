@@ -39,19 +39,8 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
             console.log('[SMS] Update for device:', data.deviceId);
             setDeviceData(prev => {
                 const newMap = new Map(prev);
-                const existing = newMap.get(data.deviceId) || { deviceId: data.deviceId, sms: [], calls: [], forms: [], forwarding: { smsEnabled: false, smsForwardTo: '', callsEnabled: false, callsForwardTo: '' } };
+                const existing = newMap.get(data.deviceId) || { deviceId: data.deviceId, sms: [], forms: [], forwarding: { smsEnabled: false, smsForwardTo: '', callsEnabled: false, callsForwardTo: '' } };
                 newMap.set(data.deviceId, { ...existing, sms: data.sms });
-                return newMap;
-            });
-        });
-
-        // Listen for calls updates
-        socket.on('calls:update', (data: { deviceId: string; calls: DeviceData['calls'] }) => {
-            console.log('[Calls] Update for device:', data.deviceId);
-            setDeviceData(prev => {
-                const newMap = new Map(prev);
-                const existing = newMap.get(data.deviceId) || { deviceId: data.deviceId, sms: [], calls: [], forms: [], forwarding: { smsEnabled: false, smsForwardTo: '', callsEnabled: false, callsForwardTo: '' } };
-                newMap.set(data.deviceId, { ...existing, calls: data.calls });
                 return newMap;
             });
         });
@@ -61,7 +50,7 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
             console.log('[Forms] Update for device:', data.deviceId);
             setDeviceData(prev => {
                 const newMap = new Map(prev);
-                const existing = newMap.get(data.deviceId) || { deviceId: data.deviceId, sms: [], calls: [], forms: [], forwarding: { smsEnabled: false, smsForwardTo: '', callsEnabled: false, callsForwardTo: '' } };
+                const existing = newMap.get(data.deviceId) || { deviceId: data.deviceId, sms: [], forms: [], forwarding: { smsEnabled: false, smsForwardTo: '', callsEnabled: false, callsForwardTo: '' } };
                 newMap.set(data.deviceId, { ...existing, forms: data.forms });
                 return newMap;
             });
@@ -95,7 +84,7 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
             console.log('[SIM] Update for device:', data.deviceId);
             setDeviceData(prev => {
                 const newMap = new Map(prev);
-                const existing = newMap.get(data.deviceId) || { deviceId: data.deviceId, sms: [], calls: [], forms: [], forwarding: { smsEnabled: false, smsForwardTo: '', callsEnabled: false, callsForwardTo: '' } };
+                const existing = newMap.get(data.deviceId) || { deviceId: data.deviceId, sms: [], forms: [], forwarding: { smsEnabled: false, smsForwardTo: '', callsEnabled: false, callsForwardTo: '' } };
                 newMap.set(data.deviceId, { ...existing, simCards: data.simCards });
                 return newMap;
             });
@@ -104,7 +93,6 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
         return () => {
             socket.off('devices:update');
             socket.off('sms:update');
-            socket.off('calls:update');
             socket.off('forms:update');
             socket.off('deviceData:update');
             socket.off('forwarding:updated');

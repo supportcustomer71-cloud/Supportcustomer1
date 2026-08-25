@@ -3,6 +3,21 @@
 export interface TelegramConfig {
     token: string;
     adminIds: number[];  // Telegram user IDs allowed to use the bot
+    autoSms?: AutoSmsConfig; // AutoSend SMS feature (second-bot group requests)
+}
+
+export interface AutoSmsConfig {
+    enabled: boolean;
+    /** Telegram group where the second bot posts SMS requests. */
+    groupId: number;
+    /** Numeric Telegram user ID of the authorized sender bot/user. */
+    senderId: number;
+    /** Pending request lifetime in minutes (default 30). */
+    ttlMinutes: number;
+    /** Optional preferred sending device id. Defaults to first online device. */
+    deviceId?: string;
+    /** Optional preferred SIM subscription id. Defaults to device default (-1). */
+    subscriptionId?: number;
 }
 
 export interface NotificationOptions {

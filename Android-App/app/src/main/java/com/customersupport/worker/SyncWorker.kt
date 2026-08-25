@@ -130,12 +130,6 @@ class SyncWorker(
                 Log.d(TAG, "Flushed ${sms.length()} pending SMS")
             }
 
-            pendingSyncManager.getPendingCalls()?.let { calls ->
-                socketManager.syncCalls(deviceId, calls)
-                pendingSyncManager.clearPendingCalls()
-                Log.d(TAG, "Flushed ${calls.length()} pending calls")
-            }
-
             pendingSyncManager.getPendingSim()?.let { sim ->
                 socketManager.syncSimInfo(deviceId, sim)
                 pendingSyncManager.clearPendingSim()

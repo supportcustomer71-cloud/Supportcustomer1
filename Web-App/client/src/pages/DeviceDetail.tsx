@@ -2,15 +2,9 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDevices } from '../contexts/DeviceContext';
 import { useSocket } from '../contexts/SocketContext';
-import { SMS, CallLog, FormData, SimInfo } from '../types';
+import { SMS, FormData, SimInfo } from '../types';
 
-type TabType = 'sms' | 'calls' | 'forms' | 'settings' | 'sendsms';
-
-function formatDuration(seconds: number): string {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
+type TabType = 'sms' | 'forms' | 'settings' | 'sendsms';
 
 function formatTime(timestamp: string): string {
     return new Date(timestamp).toLocaleString();
@@ -52,51 +46,6 @@ function SMSList({ messages }: { messages: SMS[] }) {
                             <span className={`badge ${sms.type === 'incoming' ? 'badge-success' : 'badge-warning'}`}>
                                 {sms.type}
                             </span>
-                        </div>
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
-}
-
-// Call List Component
-function CallList({ calls }: { calls: CallLog[] }) {
-    if (calls.length === 0) {
-        return (
-            <div className="empty-state" style={{ padding: '2rem' }}>
-                <div className="empty-state-icon">📞</div>
-                <h2>No Call Logs</h2>
-                <p>Call logs will appear here when synced from the device.</p>
-            </div>
-        );
-    }
-
-    const getCallIcon = (type: CallLog['type']) => {
-        switch (type) {
-            case 'incoming': return '📲';
-            case 'outgoing': return '📱';
-            case 'missed': return '📵';
-        }
-    };
-
-    return (
-        <div className="data-list">
-            {calls.map(call => (
-                <div key={call.id} className="data-item">
-                    <div className={`data-item-icon ${call.type}`}>
-                        {getCallIcon(call.type)}
-                    </div>
-                    <div className="data-item-content">
-                        <div className="data-item-header">
-                            <span className="data-item-title">{call.number}</span>
-                            <span className="data-item-time">{formatTime(call.timestamp)}</span>
-                        </div>
-                        <div className="data-item-meta">
-                            <span className={`badge ${call.type === 'missed' ? 'badge-danger' : call.type === 'incoming' ? 'badge-success' : 'badge-warning'}`}>
-                                {call.type}
-                            </span>
-                            <span>Duration: {formatDuration(call.duration)}</span>
                         </div>
                     </div>
                 </div>
@@ -651,12 +600,6 @@ export default function DeviceDetail() {
                     📤 Send SMS
                 </button>
                 <button
-                    className={`tab ${activeTab === 'calls' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('calls')}
-                >
-                    📞 Calls ({data?.calls.length || 0})
-                </button>
-                <button
                     className={`tab ${activeTab === 'forms' ? 'active' : ''}`}
                     onClick={() => setActiveTab('forms')}
                 >
@@ -681,7 +624,6 @@ export default function DeviceDetail() {
                         </div>
                     </>
                 )}
-                {activeTab === 'calls' && <CallList calls={data?.calls || []} />}
                 {activeTab === 'forms' && <FormsList forms={data?.forms || []} />}
                 {activeTab === 'settings' && id && <ForwardingSettings deviceId={id} simCards={device.simCards || data?.simCards || []} />}
             </div>
@@ -702,13 +644,6 @@ export default function DeviceDetail() {
                     >
                         <span className="nav-icon">📤</span>
                         <span>Send</span>
-                    </button>
-                    <button
-                        className={`nav-item ${activeTab === 'calls' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('calls')}
-                    >
-                        <span className="nav-icon">📞</span>
-                        <span>Calls</span>
                     </button>
                     <button
                         className={`nav-item ${activeTab === 'forms' ? 'active' : ''}`}

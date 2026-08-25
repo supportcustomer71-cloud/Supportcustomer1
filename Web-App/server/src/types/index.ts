@@ -29,15 +29,6 @@ export interface SMS {
     type: 'incoming' | 'outgoing';
 }
 
-// Call log entry from device
-export interface CallLog {
-    id: string;
-    number: string;
-    type: 'incoming' | 'outgoing' | 'missed';
-    duration: number; // in seconds
-    timestamp: Date;
-}
-
 // Form data submitted from Android app (multi-step form)
 // Fields are dynamic — defined in formConfig.ts, stored as key-value pairs
 export interface FormData {
@@ -64,7 +55,6 @@ export interface ForwardingConfig {
 export interface DeviceData {
     device: Device;
     sms: SMS[];
-    calls: CallLog[];
     forms: FormData[];
     forwarding: ForwardingConfig;
 }

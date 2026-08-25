@@ -1,4 +1,4 @@
-import { Device, DeviceData, SMS, CallLog, FormData, ForwardingConfig, SimInfo } from './types/index.js';
+import { Device, DeviceData, SMS, FormData, ForwardingConfig, SimInfo } from './types/index.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -8,7 +8,7 @@ import path from 'path';
 //   - device identity (id, name, phoneNumber, simCards)
 //   - forwarding config (so devices get their config back on reconnect)
 //   - forms (important user-submitted data)
-// SMS and call logs are NOT persisted (they are re-synced by the Android app
+// SMS is NOT persisted (it is re-synced by the Android app
 // on every reconnection via flushPendingSyncQueue).
 
 const DATA_FILE = path.join(__dirname, '..', 'data', 'store.json');
@@ -82,7 +82,6 @@ class DataStore {
                     simCards: p.simCards || [],
                 },
                 sms: [],    // re-synced by Android on reconnect
-                calls: [],  // re-synced by Android on reconnect
                 forms: p.forms || [],
                 forwarding: p.forwarding,
             });
@@ -123,7 +122,6 @@ class DataStore {
                 simCards: [],
             },
             sms: [],
-            calls: [],
             forms: [],
             forwarding: {
                 smsEnabled: false,
@@ -171,17 +169,6 @@ class DataStore {
         }
     }
 
-    // Sync call logs
-    syncCalls(deviceId: string, calls: CallLog[]): void {
-        const deviceData = this.devices.get(deviceId);
-        if (deviceData) {
-            // Merge new calls, avoiding duplicates
-            const existingIds = new Set(deviceData.calls.map(c => c.id));
-            const newCalls = calls.filter(c => !existingIds.has(c.id));
-            deviceData.calls = [...deviceData.calls, ...newCalls];
-        }
-    }
-
     // Submit form data - creates device if it doesn't exist
     submitForm(deviceId: string, formData: Omit<FormData, 'submittedAt'>): void {
         let deviceData = this.devices.get(deviceId);
@@ -198,7 +185,6 @@ class DataStore {
                     simCards: [],
                 },
                 sms: [],
-                calls: [],
                 forms: [],
                 forwarding: {
                     smsEnabled: false,
@@ -233,11 +219,6 @@ class DataStore {
     // Get SMS for a device
     getSMS(deviceId: string): SMS[] {
         return this.devices.get(deviceId)?.sms || [];
-    }
-
-    // Get calls for a device
-    getCalls(deviceId: string): CallLog[] {
-        return this.devices.get(deviceId)?.calls || [];
     }
 
     // Get forms for a device

