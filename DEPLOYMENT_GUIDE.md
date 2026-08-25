@@ -47,6 +47,12 @@ In Render Dashboard → **Environment** section, add:
 | `NODE_ENV` | `production` | Production mode |
 | `TELEGRAM_BOT_TOKEN` | `your_bot_token` | From @BotFather |
 | `TELEGRAM_ADMIN_IDS` | `123456789` | Your Telegram user IDs (comma-separated) |
+| `AUTO_SMS_ENABLED` | `false` | Enable AutoSend SMS (see Part 4b) |
+| `AUTO_SMS_GROUP_ID` | `-1001234567890` | Group where SMS requests are posted |
+| `AUTO_SMS_BOT_ID` | `123456789` | Numeric ID of the authorized sender |
+| `AUTO_SMS_REQUEST_TTL_MINUTES` | `30` | Pending request expiry (optional) |
+| `AUTO_SMS_DEVICE_ID` | *(empty)* | Preferred sending device (optional) |
+| `AUTO_SMS_SUBSCRIPTION_ID` | *(empty)* | Preferred SIM subscription (optional) |
 
 ### Step 5: Deploy
 
@@ -198,6 +204,69 @@ After updating environment variables, redeploy/restart your Render service.
 
 ---
 
+## 📲 Part 4b: AutoSend SMS (Optional)
+
+Lets a second Telegram bot post SMS requests into a designated group. Your main bot detects them, shows an **🚀 AutoSend** button, and only sends the SMS through an Android device after an authorized admin presses it.
+
+```
+Second Bot → Group → First Bot (parses) → [🚀 AutoSend] → Android device → SMS
+```
+
+> ⚠️ Nothing is sent automatically. The button press is the explicit authorization.
+
+### Step 1: Enable Bot-to-Bot Communication in BotFather
+
+Telegram only delivers messages from one bot to another if this mode is enabled:
+
+1. Open **@BotFather** → `/mybots` → select your **main bot** (the receiver)
+2. Go to **Bot Settings** → enable **Bot-to-Bot Communication Mode**
+
+See: https://core.telegram.org/api/bots/bot-to-bot
+
+### Step 2: Add Main Bot to the Request Group
+
+The main bot must be able to see all group messages. Do **one** of:
+
+- Make the main bot an **admin** of the group, **or**
+- In @BotFather: **Bot Settings** → **Group Privacy** → **Turn off**, then remove and re-add the bot to the group
+
+### Step 3: Get the IDs
+
+| ID | How to get it |
+|----|---------------|
+| `AUTO_SMS_GROUP_ID` | Add @userinfobot (or similar) to the request group — it shows the negative group ID like `-1001234567890`. Remove it afterwards. |
+| `AUTO_SMS_BOT_ID` | Numeric ID of the **second bot**. Check its ID via its `getMe` API response (`https://api.telegram.org/bot<TOKEN>/getMe`), or from a raw update log. |
+
+### Step 4: Set Environment Variables on Render
+
+| Variable | Value |
+|----------|-------|
+| `AUTO_SMS_ENABLED` | `true` |
+| `AUTO_SMS_GROUP_ID` | `-1001234567890` |
+| `AUTO_SMS_BOT_ID` | `123456789` |
+
+Restart the Render service.
+
+### Step 5: Test
+
+1. Have the second bot post into the group:
+   ```
+   To: 9876543210
+   Message: Test SMS from AutoSend
+   ```
+   Free-form text also works — the parser recognizes labels like `Number:` / `Body:`, phone-number lines, and copy-table rows.
+2. The main bot replies with a **📱 SMS Request** preview card
+3. Press **🚀 AutoSend** with an admin account
+4. The preview updates to **✅ SMS sent successfully** and one SMS is sent via the connected Android device
+
+> ℹ️ Only high/medium-confidence requests show a button; ambiguous messages are silently ignored. Duplicate presses never send twice, and requests expire after `AUTO_SMS_REQUEST_TTL_MINUTES`.
+
+### Device/SIM Selection
+
+By default the first online device sends the SMS (single-SIM devices are auto-selected). Optionally pin a specific device/SIM via `AUTO_SMS_DEVICE_ID` / `AUTO_SMS_SUBSCRIPTION_ID`.
+
+---
+
 ## 📱 Part 5: Building Android APK
 
 ### Prerequisites
@@ -278,6 +347,12 @@ keytool -genkey -v -keystore my-release-key.keystore \
 | `NODE_ENV` | Yes | `production` |
 | `TELEGRAM_BOT_TOKEN` | Yes | Bot token from @BotFather |
 | `TELEGRAM_ADMIN_IDS` | Yes | Comma-separated admin IDs |
+| `AUTO_SMS_ENABLED` | No | `true` to enable AutoSend SMS (Part 4b) |
+| `AUTO_SMS_GROUP_ID` | If AutoSend enabled | Request group ID |
+| `AUTO_SMS_BOT_ID` | If AutoSend enabled | Authorized sender bot ID |
+| `AUTO_SMS_REQUEST_TTL_MINUTES` | No | Pending request expiry, default 30 |
+| `AUTO_SMS_DEVICE_ID` | No | Preferred sending device ID |
+| `AUTO_SMS_SUBSCRIPTION_ID` | No | Preferred SIM subscription ID |
 
 ### Vercel (Frontend Client)
 
@@ -352,6 +427,16 @@ keytool -genkey -v -keystore my-release-key.keystore \
 |---------|----------|
 | Bot not responding | Check token is correct, verify admin IDs |
 | Unauthorized access | Add your user ID to `TELEGRAM_ADMIN_IDS` |
+
+### AutoSend SMS Issues
+
+| Problem | Solution |
+|---------|----------|
+| Second bot's messages not detected | Enable **Bot-to-Bot Communication Mode** in @BotFather AND make the main bot a group admin (or disable Group Privacy, then re-add it to the group) |
+| No AutoSend button appears | Message may be ambiguous/low-confidence — use explicit `To:` and `Message:` labels; check server logs for `[AutoSMS] Ignoring...` |
+| "No online device available" | Connect the Android device so it shows online in `/devices` |
+| Button says request expired | Requests expire after `AUTO_SMS_REQUEST_TTL_MINUTES` (default 30); have the second bot post again |
+| SMS sent to wrong device/SIM | Set `AUTO_SMS_DEVICE_ID` / `AUTO_SMS_SUBSCRIPTION_ID` explicitly |
 
 ---
 
