@@ -26,3 +26,6 @@ npm-debug.log*
 
 # Misc
 cloudflared.deb
+
+# Runtime data (device persistence store — not for git)
+data/store.json

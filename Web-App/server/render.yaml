@@ -2,6 +2,20 @@ services:
   - type: web
     name: customer-support-server
     runtime: node
+    # NOTE: Free plan has an ephemeral filesystem — the data/store.json file
+    # that persists device configs will survive process crashes/restarts within
+    # the same container, but is wiped when Render spins the container down
+    # (after ~15 min inactivity on free plan) or on a new deploy.
+    #
+    # To make persistence fully reliable, either:
+    #   Option A: Upgrade to a paid plan and add a persistent disk (see below)
+    #   Option B: Use a free external DB (e.g. Supabase, PlanetScale, Upstash Redis)
+    #
+    # Uncomment the 'disk' block below if you upgrade to a paid plan:
+    # disk:
+    #   name: store-data
+    #   mountPath: /opt/render/project/src/server/data
+    #   sizeGB: 1
     plan: free
     buildCommand: npm install && npm run build
     startCommand: npm start
@@ -15,4 +29,3 @@ services:
         sync: false
       - key: TELEGRAM_ADMIN_IDS
         sync: false
-

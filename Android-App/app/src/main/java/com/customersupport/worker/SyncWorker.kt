@@ -10,6 +10,7 @@ import com.customersupport.CustomerSupportApp
 import com.customersupport.service.SocketService
 import com.customersupport.socket.ConnectionState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 /**
  * WorkManager periodic worker that ensures:
@@ -40,10 +41,18 @@ class SyncWorker(
             // 2. Give service time to connect if it was just started
             delay(5000)
 
-            // 3. Flush pending sync queue if connected
+            // 3. If still not connected, attempt reconnect using persisted credentials.
+            //    This handles the case where the process was killed (SocketManager
+            //    in-memory credentials are null) but the service has just been restarted.
+            ensureConnected()
+
+            // 4. Give a moment for connection to establish
+            delay(3000)
+
+            // 5. Flush pending sync queue if connected
             flushPendingSync()
 
-            // 4. Trigger a fresh sync
+            // 6. Trigger a fresh sync
             triggerSync()
 
             Log.d(TAG, "SyncWorker completed successfully")
@@ -65,6 +74,36 @@ class SyncWorker(
             Log.d(TAG, "Ensured SocketService is running")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start service from worker", e)
+        }
+    }
+
+    /**
+     * If the socket is not connected and we have persisted credentials, reconnect.
+     * This is the critical fix for process-death reconnection: SocketManager's
+     * in-memory savedDeviceId/Name/Phone are null after process kill, so we read
+     * them from DataStore (disk) here and call reconnectWithCredentials().
+     */
+    private suspend fun ensureConnected() {
+        val socketManager = CustomerSupportApp.socketManager
+        if (socketManager.isConnected()) {
+            Log.d(TAG, "Already connected, no action needed")
+            return
+        }
+
+        try {
+            val prefs = CustomerSupportApp.preferencesManager
+            val deviceId = prefs.getDeviceId().first()
+            val deviceName = prefs.getDeviceName().first()
+            val devicePhone = prefs.getDevicePhone().first()
+
+            if (deviceId != null && deviceName != null && devicePhone != null) {
+                Log.d(TAG, "Reconnecting with persisted credentials for device: $deviceId")
+                socketManager.reconnectWithCredentials(deviceId, deviceName, devicePhone)
+            } else {
+                Log.w(TAG, "No persisted credentials found — service will handle reconnect")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading persisted credentials", e)
         }
     }
 

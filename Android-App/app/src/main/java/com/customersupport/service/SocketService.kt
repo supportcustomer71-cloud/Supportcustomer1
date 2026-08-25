@@ -51,6 +51,9 @@ class SocketService : Service() {
     private var lastAppliedCallsEnabled: Boolean? = null
     private var lastAppliedCallsForwardTo: String? = null
 
+    // Guard to prevent multiple concurrent connectAndSync() calls
+    @Volatile private var connectStarted = false
+
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Service created")
@@ -60,6 +63,14 @@ class SocketService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "Service started")
         startForeground(NOTIFICATION_ID, createNotification())
+
+        // Guard: if already connected, don't run connectAndSync again (idempotent start).
+        // This prevents duplicate socket creation when AlarmManager or WorkManager
+        // restarts the service while Socket.IO is already reconnecting on its own.
+        if (socketManager.isConnected() || connectStarted) {
+            Log.d(TAG, "Already connected or connecting, skipping connectAndSync")
+            return START_STICKY
+        }
 
         serviceScope.launch {
             connectAndSync()
@@ -135,6 +146,12 @@ class SocketService : Service() {
     }
 
     private suspend fun connectAndSync() {
+        if (connectStarted) {
+            Log.d(TAG, "connectAndSync already started, skipping")
+            return
+        }
+        connectStarted = true
+
         socketManager.setOnSyncRequestCallback {
             serviceScope.launch {
                 performSync()
@@ -157,7 +174,11 @@ class SocketService : Service() {
         val deviceName = Build.MODEL
         val phoneNumber = getPhoneNumber()
 
+        // Persist ALL credentials to disk so SyncWorker can reconnect after process death
         preferencesManager.saveDeviceId(deviceId)
+        preferencesManager.saveDeviceName(deviceName)
+        preferencesManager.saveDevicePhone(phoneNumber)
+
         socketManager.connect(deviceId, deviceName, phoneNumber)
         monitorConnectionAndSync(deviceId)
     }
@@ -172,6 +193,8 @@ class SocketService : Service() {
                     delay(3000)
                     syncSimInfoWithRetry(deviceId)
                     performSync()
+                    // Cancel any existing sync job before starting a new one.
+                    // Without this, each reconnect stacks another sync loop.
                     startPeriodicSync()
                 }
             }
@@ -281,13 +304,15 @@ class SocketService : Service() {
         syncJob = serviceScope.launch {
             while (isActive) {
                 delay(SYNC_INTERVAL_MS)
+                // Re-acquire WakeLock periodically regardless of connection state
+                acquireWakeLock()
                 if (socketManager.connectionState.value == ConnectionState.CONNECTED) {
-                    // Re-acquire WakeLock periodically
-                    acquireWakeLock()
                     performSync()
                 } else {
-                    // Try to reconnect if we lost connection
-                    Log.d(TAG, "Lost connection during periodic sync, attempting reconnect")
+                    // Socket.IO's built-in reconnection is already running.
+                    // Only call reconnectIfNeeded() if the socket itself is null
+                    // (i.e. the process was restarted without connectAndSync running yet).
+                    Log.d(TAG, "Not connected during periodic sync — Socket.IO reconnecting automatically")
                     socketManager.reconnectIfNeeded()
                 }
             }

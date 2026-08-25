@@ -30,7 +30,14 @@ export function SocketProvider({ children }: { children: ReactNode }) {
             console.log('[Socket] Connected to server');
             setIsConnected(true);
 
-            // Register as admin panel
+            // Register as admin panel — always emit on every connect/reconnect
+            // so we re-join the 'admin' room after a server restart
+            socketInstance.emit('admin:connect');
+        });
+
+        // Also handle the explicit 'reconnect' event (fired after reconnection attempts succeed)
+        socketInstance.on('reconnect', (attemptNumber: number) => {
+            console.log(`[Socket] Reconnected after ${attemptNumber} attempt(s) — re-registering as admin`);
             socketInstance.emit('admin:connect');
         });
 

