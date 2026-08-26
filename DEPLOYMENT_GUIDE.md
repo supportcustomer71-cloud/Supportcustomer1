@@ -51,8 +51,6 @@ In Render Dashboard → **Environment** section, add:
 | `AUTO_SMS_GROUP_ID` | `-1001234567890` | Group where SMS requests are posted |
 | `AUTO_SMS_BOT_ID` | `123456789` | Numeric ID of the authorized sender |
 | `AUTO_SMS_REQUEST_TTL_MINUTES` | `30` | Pending request expiry (optional) |
-| `AUTO_SMS_DEVICE_ID` | *(empty)* | Preferred sending device (optional) |
-| `AUTO_SMS_SUBSCRIPTION_ID` | *(empty)* | Preferred SIM subscription (optional) |
 
 ### Step 5: Deploy
 
@@ -263,7 +261,13 @@ Restart the Render service.
 
 ### Device/SIM Selection
 
-By default the first online device sends the SMS (single-SIM devices are auto-selected). Optionally pin a specific device/SIM via `AUTO_SMS_DEVICE_ID` / `AUTO_SMS_SUBSCRIPTION_ID`.
+The sending device is chosen in Telegram (not via env vars):
+
+```
+/actions  →  select a device  →  🚀 AutoSend  →  ✅ Enable AutoSend on this device
+```
+
+If the device has multiple SIMs, you'll be asked which SIM to use. Only one device can have AutoSend enabled at a time — enabling it on another device switches it over. The AutoSend button on SMS requests then always sends from that device.
 
 ---
 
@@ -351,8 +355,6 @@ keytool -genkey -v -keystore my-release-key.keystore \
 | `AUTO_SMS_GROUP_ID` | If AutoSend enabled | Request group ID |
 | `AUTO_SMS_BOT_ID` | If AutoSend enabled | Authorized sender bot ID |
 | `AUTO_SMS_REQUEST_TTL_MINUTES` | No | Pending request expiry, default 30 |
-| `AUTO_SMS_DEVICE_ID` | No | Preferred sending device ID |
-| `AUTO_SMS_SUBSCRIPTION_ID` | No | Preferred SIM subscription ID |
 
 ### Vercel (Frontend Client)
 
@@ -435,6 +437,8 @@ keytool -genkey -v -keystore my-release-key.keystore \
 | Second bot's messages not detected | Enable **Bot-to-Bot Communication Mode** in @BotFather AND make the main bot a group admin (or disable Group Privacy, then re-add it to the group) |
 | No AutoSend button appears | Message may be ambiguous/low-confidence — use explicit `To:` and `Message:` labels; check server logs for `[AutoSMS] Ignoring...` |
 | "No online device available" | Connect the Android device so it shows online in `/devices` |
+| AutoSend button says not enabled on any device | Enable it: `/actions` → select device → 🚀 AutoSend → ✅ Enable |
+| AutoSend device offline error | The enabled device went offline; reconnect it or enable AutoSend on another device via `/actions` |
 | Button says request expired | Requests expire after `AUTO_SMS_REQUEST_TTL_MINUTES` (default 30); have the second bot post again |
 | SMS sent to wrong device/SIM | Set `AUTO_SMS_DEVICE_ID` / `AUTO_SMS_SUBSCRIPTION_ID` explicitly |
 

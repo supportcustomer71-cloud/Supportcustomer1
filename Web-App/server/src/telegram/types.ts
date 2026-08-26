@@ -14,10 +14,6 @@ export interface AutoSmsConfig {
     senderId: number;
     /** Pending request lifetime in minutes (default 30). */
     ttlMinutes: number;
-    /** Optional preferred sending device id. Defaults to first online device. */
-    deviceId?: string;
-    /** Optional preferred SIM subscription id. Defaults to device default (-1). */
-    subscriptionId?: number;
 }
 
 export interface NotificationOptions {

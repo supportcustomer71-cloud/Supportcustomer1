@@ -74,10 +74,6 @@ function buildAutoSmsConfig() {
         groupId,
         senderId,
         ttlMinutes: isNaN(ttlMinutes) ? 30 : ttlMinutes,
-        deviceId: process.env.AUTO_SMS_DEVICE_ID || undefined,
-        subscriptionId: process.env.AUTO_SMS_SUBSCRIPTION_ID
-            ? parseInt(process.env.AUTO_SMS_SUBSCRIPTION_ID, 10)
-            : undefined,
     };
 }
 
