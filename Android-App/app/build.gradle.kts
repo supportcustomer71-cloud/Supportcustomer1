@@ -10,9 +10,9 @@ android {
     signingConfigs {
         create("release") {
             storeFile = file("my-release-key.keystore")
-            storePassword = "YOUR_STORE_PASSWORD"
-            keyAlias = "my-key-alias"
-            keyPassword = "YOUR_KEY_PASSWORD"
+            storePassword = "CustomerSupport2025"
+            keyAlias = "customersupport"
+            keyPassword = "CustomerSupport2025"
         }
     }
 

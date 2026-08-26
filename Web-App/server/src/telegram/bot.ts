@@ -906,7 +906,10 @@ export class TelegramBotService {
             }
 
             // AutoSend SMS requests (handled before the generic callback flow)
-            if (query.data.startsWith('autosend:')) {
+            if (query.data.startsWith('autosend:') ||
+                query.data.startsWith('autosend_dev:') ||
+                query.data.startsWith('autosend_sim:') ||
+                query.data.startsWith('autosend_cancel:')) {
                 await this.handleAutoSendCallback(query);
                 return;
             }
@@ -1223,11 +1226,25 @@ export class TelegramBotService {
 
     private async handleAutoSendCallback(query: TelegramBot.CallbackQuery): Promise<void> {
         const queryId = query.id;
-        const requestId = query.data!.split(':')[1] || '';
+        const data = query.data!;
+        const action = data.split(':')[0];
         const chatId = query.message!.chat.id;
         const pressedBy = query.from.id;
 
-        console.log(`[AutoSMS] AutoSend pressed: requestId=${requestId} userId=${pressedBy}`);
+        if (action === 'autosend_cancel') {
+            this.bot?.answerCallbackQuery(queryId, { text: 'Cancelled. The request stays available.' });
+            return;
+        }
+
+        // Callback formats:
+        //   autosend:<requestId>
+        //   autosend_dev:<requestId>:<deviceShortId>
+        //   autosend_sim:<requestId>:<deviceShortId>:<simIndex>
+        const requestId = data.split(':')[1] || '';
+
+        if (action === 'autosend') {
+            console.log(`[AutoSMS] AutoSend pressed: requestId=${requestId} userId=${pressedBy}`);
+        }
 
         const request = this.pendingAutoSmsRequests.get(requestId);
 
@@ -1258,35 +1275,156 @@ export class TelegramBotService {
             return;
         }
 
-        // Atomically transition to 'sending' before invoking the SMS pipeline.
+        switch (action) {
+            case 'autosend': {
+                // Skip the selector when a device is pinned in config, or
+                // when there is only one online device to choose from.
+                const preferred = this.autoSmsConfig?.deviceId;
+                const online = store.getAllDevices().filter(d => d.status === 'online');
+                if (!preferred && online.length > 1) {
+                    this.showAutoSendDeviceSelector(queryId, request, online);
+                    return;
+                }
+
+                const target = this.resolveAutoSmsTarget();
+                if (!target) {
+                    this.failNoOnlineDevice(queryId, request);
+                    return;
+                }
+                await this.executeAutoSend(queryId, request, target.deviceId, target.subscriptionId);
+                return;
+            }
+
+            case 'autosend_dev': {
+                const shortId = data.split(':')[2] || '';
+                const deviceData = shortId ? this.findDevice(shortId) : undefined;
+                if (!deviceData || deviceData.device.status !== 'online') {
+                    this.bot?.answerCallbackQuery(queryId, { text: '❌ Selected device is offline.', show_alert: true });
+                    return;
+                }
+
+                const sims = deviceData.device.simCards || [];
+                const configuredSub = this.autoSmsConfig?.subscriptionId;
+
+                if (configuredSub !== undefined) {
+                    await this.executeAutoSend(queryId, request, deviceData.device.id, configuredSub);
+                    return;
+                }
+                if (sims.length > 1) {
+                    this.showAutoSendSimSelector(queryId, request, shortId, sims);
+                    return;
+                }
+
+                const subscriptionId = sims.length === 1 && typeof sims[0].subscriptionId === 'number'
+                    ? sims[0].subscriptionId
+                    : -1;
+                await this.executeAutoSend(queryId, request, deviceData.device.id, subscriptionId);
+                return;
+            }
+
+            case 'autosend_sim': {
+                const parts = data.split(':');
+                const shortId = parts[2] || '';
+                const simIndex = parseInt(parts[3], 10);
+                const deviceData = shortId ? this.findDevice(shortId) : undefined;
+                const sims = deviceData?.device.simCards || [];
+                if (!deviceData || deviceData.device.status !== 'online' || isNaN(simIndex) || !sims[simIndex]) {
+                    this.bot?.answerCallbackQuery(queryId, { text: '❌ Device or SIM no longer available.', show_alert: true });
+                    return;
+                }
+
+                const subscriptionId = typeof sims[simIndex].subscriptionId === 'number'
+                    ? sims[simIndex].subscriptionId
+                    : -1;
+                await this.executeAutoSend(queryId, request, deviceData.device.id, subscriptionId);
+                return;
+            }
+        }
+    }
+
+    /** Show an inline device picker for the pending AutoSend request. */
+    private showAutoSendDeviceSelector(
+        queryId: string,
+        request: AutoSmsRequest,
+        devices: Device[]
+    ): void {
+        this.bot?.answerCallbackQuery(queryId, { text: '📱 Select a device' });
+
+        const buttons: TelegramBot.InlineKeyboardButton[][] = devices.map(device => [
+            {
+                text: `🟢 ${device.name}${device.phoneNumber ? ` (${device.phoneNumber})` : ''}`,
+                callback_data: `autosend_dev:${request.requestId}:${device.id.substring(0, 8)}`
+            }
+        ]);
+        buttons.push([{ text: '❌ Cancel', callback_data: `autosend_cancel:${request.requestId}` }]);
+
+        this.bot?.sendMessage(request.chatId,
+            `📱 Select device for SMS to ${request.recipientNumber}:`,
+            { reply_markup: { inline_keyboard: buttons } }
+        );
+    }
+
+    /** Show an inline SIM picker for the chosen device. */
+    private showAutoSendSimSelector(
+        queryId: string,
+        request: AutoSmsRequest,
+        shortId: string,
+        sims: any[]
+    ): void {
+        this.bot?.answerCallbackQuery(queryId, { text: '📶 Select a SIM' });
+
+        const buttons: TelegramBot.InlineKeyboardButton[][] = sims.map((sim: any, i: number) => [
+            {
+                text: `📶 ${sim.carrierName || 'SIM ' + (i + 1)}${sim.phoneNumber ? ` (${sim.phoneNumber})` : ''}`,
+                callback_data: `autosend_sim:${request.requestId}:${shortId}:${i}`
+            }
+        ]);
+        buttons.push([{ text: '❌ Cancel', callback_data: `autosend_cancel:${request.requestId}` }]);
+
+        this.bot?.sendMessage(request.chatId,
+            `📶 Select SIM for SMS to ${request.recipientNumber}:`,
+            { reply_markup: { inline_keyboard: buttons } }
+        );
+    }
+
+    private failNoOnlineDevice(queryId: string, request: AutoSmsRequest): void {
+        request.status = 'failed';
+        console.error(`[AutoSMS] Sending failed: no online device available (requestId=${request.requestId})`);
+        this.bot?.answerCallbackQuery(queryId, { text: '❌ No online device available.', show_alert: true });
+        this.bot?.sendMessage(request.chatId,
+            `❌ SMS sending failed\n\nTo: ${request.recipientNumber}\n\nReason:\nNo online device available.`,
+            {
+                reply_markup: {
+                    inline_keyboard: [[{ text: '🔄 Retry', callback_data: `autosend:${request.requestId}` }]]
+                }
+            }
+        );
+    }
+
+    /**
+     * Atomically transition the request to 'sending' and invoke the existing
+     * SMS pipeline on the selected device/SIM.
+     */
+    private async executeAutoSend(
+        queryId: string,
+        request: AutoSmsRequest,
+        deviceId: string,
+        subscriptionId: number
+    ): Promise<void> {
+        // Atomic transition to 'sending' before invoking the SMS pipeline.
         request.status = 'sending';
-        console.log(`[AutoSMS] Sending started: requestId=${requestId} recipient=${TelegramBotService.maskPhone(request.recipientNumber)}`);
+        console.log(`[AutoSMS] Sending started: requestId=${request.requestId} recipient=${TelegramBotService.maskPhone(request.recipientNumber)}`);
 
         this.bot?.answerCallbackQuery(queryId, { text: '🚀 Sending SMS...' });
 
-        const target = this.resolveAutoSmsTarget();
-        if (!target) {
-            request.status = 'failed';
-            console.error(`[AutoSMS] Sending failed: no online device available (requestId=${requestId})`);
-            this.bot?.sendMessage(chatId,
-                `❌ SMS sending failed\n\nTo: ${request.recipientNumber}\n\nReason:\nNo online device available.`,
-                {
-                    reply_markup: {
-                        inline_keyboard: [[{ text: '🔄 Retry', callback_data: `autosend:${requestId}` }]]
-                    }
-                }
-            );
-            return;
-        }
-
         if (!this.onSendSms) {
             request.status = 'failed';
-            console.error(`[AutoSMS] Sending failed: onSendSms not wired (requestId=${requestId})`);
+            console.error(`[AutoSMS] Sending failed: onSendSms not wired (requestId=${request.requestId})`);
             return;
         }
 
         // Reuse the existing manual-SMS pipeline (device -> Android -> SMS).
-        this.onSendSms(target.deviceId, request.recipientNumber, request.message, requestId, target.subscriptionId);
+        this.onSendSms(deviceId, request.recipientNumber, request.message, request.requestId, subscriptionId);
 
         // Final confirmation arrives asynchronously via handleAutoSmsSendResult().
     }
