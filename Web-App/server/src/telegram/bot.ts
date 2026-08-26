@@ -37,6 +37,8 @@ export class TelegramBotService {
     // Device/SIM currently enabled for AutoSend (set via Telegram action menu)
     private autoSendDeviceId: string | null = null;
     private autoSendSubscriptionId: number = -1;
+    // When 'auto', matching second-bot messages are sent immediately without a button press.
+    private autoSendMode: 'manual' | 'auto' = 'manual';
 
     // SMS conversation state: chatId -> { deviceId, subscriptionId, step, phoneNumber }
     private smsConversations: Map<number, { deviceId: string; subscriptionId: number; step: 'phone' | 'message'; phoneNumber?: string }> = new Map();
@@ -1070,6 +1072,14 @@ export class TelegramBotService {
                 case 'as_off':
                     this.disableAutoSend(chatId);
                     break;
+
+                case 'as_mode':
+                    if (deviceData) this.toggleAutoSendMode(chatId, deviceData);
+                    else if (shortId) {
+                        const d = this.findDevice(shortId);
+                        if (d) this.toggleAutoSendMode(chatId, d);
+                    }
+                    break;
             }
         });
     }
@@ -1180,9 +1190,14 @@ export class TelegramBotService {
         } else {
             statusLine = '❌ OFF';
         }
+        const modeLine = this.autoSendMode === 'auto'
+            ? '⚡ Auto — sends immediately when a request is received'
+            : '👆 Manual — requires pressing 🚀 AutoSend on the preview';
+        const modeLabel = this.autoSendMode === 'auto' ? '👆 Switch to Manual' : '⚡ Switch to Auto';
 
-        const message = `*🚀 AutoSend - ${device.name}*\n\nStatus: ${statusLine}\n\n` +
-            `When enabled, second-bot SMS requests posted to the request group are sent from this device after an admin presses the AutoSend button.`;
+        const message = `*🚀 AutoSend - ${device.name}*\n\nStatus: ${statusLine}\nMode: ${modeLine}\n\n` +
+            `When enabled, second-bot SMS requests posted to the request group are sent from the enabled device.` +
+            (this.autoSendMode === 'auto' ? ` In *Auto* mode the SMS is sent immediately.` : ` In *Manual* mode an admin must press the preview button.`);
 
         const buttons: TelegramBot.InlineKeyboardButton[][] = [];
         if (this.autoSendDeviceId === device.id) {
@@ -1190,6 +1205,7 @@ export class TelegramBotService {
         } else {
             buttons.push([{ text: '✅ Enable AutoSend on this device', callback_data: `as_on:${shortId}` }]);
         }
+        buttons.push([{ text: modeLabel, callback_data: `as_mode:${shortId}` }]);
         buttons.push([{ text: '⬅️ Back', callback_data: `action_menu:${shortId}` }]);
 
         this.bot?.sendMessage(chatId, message, {
@@ -1248,6 +1264,16 @@ export class TelegramBotService {
         this.bot?.sendMessage(chatId, '❌ AutoSend disabled.');
     }
 
+    private toggleAutoSendMode(chatId: number, deviceData: any): void {
+        this.autoSendMode = this.autoSendMode === 'auto' ? 'manual' : 'auto';
+        console.log(`[AutoSMS] Mode switched to ${this.autoSendMode}`);
+        this.bot?.sendMessage(chatId, this.autoSendMode === 'auto'
+            ? '⚡ AutoSend mode: *Auto* — matching requests will be sent immediately without a button press.'
+            : '👆 AutoSend mode: *Manual* — an admin must press 🚀 AutoSend on the preview to send.', { parse_mode: 'Markdown' });
+        // Refresh the menu to reflect the new mode
+        this.showAutoSendMenu(chatId, deviceData);
+    }
+
     // ==================== AUTOSEND SMS (SECOND BOT) ====================
     //
     // A second Telegram bot/user posts SMS requests into a designated group.
@@ -1273,15 +1299,13 @@ export class TelegramBotService {
         // and it must be an admin in the group OR have Group Privacy Mode
         // disabled. Otherwise Telegram does not deliver other bots' messages.
         this.bot.on('message', (msg) => {
-            try {
-                this.handleAutoSmsGroupMessage(msg);
-            } catch (error: any) {
+            this.handleAutoSmsGroupMessage(msg).catch((error: any) => {
                 console.error('[AutoSMS] Error handling group message:', error?.message || error);
-            }
+            });
         });
     }
 
-    private handleAutoSmsGroupMessage(msg: TelegramBot.Message): void {
+    private async handleAutoSmsGroupMessage(msg: TelegramBot.Message): Promise<void> {
         const cfg = this.autoSmsConfig;
         if (!cfg || !msg.text || !msg.from) return;
 
@@ -1319,18 +1343,84 @@ export class TelegramBotService {
         };
         this.pendingAutoSmsRequests.set(requestId, request);
 
-        console.log(`[AutoSMS] Request detected: requestId=${requestId} senderId=${msg.from.id} groupId=${msg.chat.id} recipient=${TelegramBotService.maskPhone(parsed.recipientNumber)} confidence=${parsed.confidence}`);
+        console.log(`[AutoSMS] Request detected: requestId=${requestId} senderId=${msg.from.id} groupId=${msg.chat.id} recipient=${TelegramBotService.maskPhone(parsed.recipientNumber)} confidence=${parsed.confidence} mode=${this.autoSendMode}`);
 
+        // Auto mode: send immediately via the enabled device, skipping the button.
+        if (this.autoSendMode === 'auto') {
+            if (!this.autoSendDeviceId) {
+                const warnText =
+                    `⚠️ AutoSend is in *Auto* mode but no device is enabled.\n\n` +
+                    `Enable via /actions → select device → 🚀 AutoSend\n\n` +
+                    `To: ${parsed.recipientNumber}\n\nMessage:\n${parsed.message}`;
+                try {
+                    const sent = await this.bot?.sendMessage(msg.chat.id, warnText, {
+                        parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: [[{ text: '🔄 Retry', callback_data: `autosend:${requestId}` }]] }
+                    });
+                    if (sent) request.messageId = sent.message_id;
+                } catch (error: any) {
+                    console.error('[AutoSMS] Failed to send auto-mode warning:', error?.message || error);
+                }
+                return;
+            }
+
+            const deviceData = store.getDevice(this.autoSendDeviceId);
+            if (!deviceData || deviceData.device.status !== 'online') {
+                request.status = 'failed';
+                const deviceName = deviceData?.device.name || this.autoSendDeviceId.substring(0, 8);
+                console.error(`[AutoSMS] Auto-send failed: device offline (requestId=${requestId} device=${deviceName})`);
+                const failText = `❌ AutoSend failed — device *${deviceName}* offline\n\nTo: ${parsed.recipientNumber}\n\nReason: Device offline. Use /actions to enable on another device.`;
+                try {
+                    const sent = await this.bot?.sendMessage(msg.chat.id, failText, {
+                        parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: [[{ text: '🔄 Retry', callback_data: `autosend:${requestId}` }]] }
+                    });
+                    if (sent) request.messageId = sent.message_id;
+                } catch (error: any) {
+                    console.error('[AutoSMS] Failed to send auto-send failure card:', error?.message || error);
+                }
+                return;
+            }
+
+            const statusText =
+                `🚀 AutoSend → ${deviceData.device.name}\n\n` +
+                `To: ${parsed.recipientNumber}\n\n` +
+                `Message:\n${parsed.message}\n\n` +
+                `⏳ Sending...`;
+            try {
+                const sent = await this.bot?.sendMessage(msg.chat.id, statusText);
+                if (sent) request.messageId = sent.message_id;
+            } catch (error: any) {
+                console.error('[AutoSMS] Failed to send auto-send status card:', error?.message || error);
+            }
+            request.status = 'sending';
+            console.log(`[AutoSMS] Auto-sending: requestId=${requestId} recipient=${TelegramBotService.maskPhone(parsed.recipientNumber)} via ${deviceData.device.name}`);
+            if (!this.onSendSms) {
+                request.status = 'failed';
+                console.error(`[AutoSMS] Auto-send failed: onSendSms not wired (requestId=${requestId})`);
+                return;
+            }
+            this.onSendSms(this.autoSendDeviceId, parsed.recipientNumber, parsed.message, requestId, this.autoSendSubscriptionId);
+            return;
+        }
+
+        // Manual mode: show preview with button. Capture the preview's message_id
+        // so handleAutoSmsSendResult can edit the correct message.
         const preview =
             `📱 SMS Request\n\n` +
             `To: ${parsed.recipientNumber}\n\n` +
             `Message:\n${parsed.message}`;
 
-        this.bot?.sendMessage(msg.chat.id, preview, {
-            reply_markup: {
-                inline_keyboard: [[{ text: '🚀 AutoSend', callback_data: `autosend:${requestId}` }]]
-            }
-        });
+        try {
+            const sent = await this.bot?.sendMessage(msg.chat.id, preview, {
+                reply_markup: {
+                    inline_keyboard: [[{ text: '🚀 AutoSend', callback_data: `autosend:${requestId}` }]]
+                }
+            });
+            if (sent) request.messageId = sent.message_id;
+        } catch (error: any) {
+            console.error('[AutoSMS] Failed to send preview:', error?.message || error);
+        }
     }
 
     private async handleAutoSendCallback(query: TelegramBot.CallbackQuery): Promise<void> {
