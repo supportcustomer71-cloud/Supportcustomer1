@@ -118,7 +118,8 @@ git push origin main
 2. Click **+ New Resource** → **Application** → **Public / Private GitHub Repository**.
 
 ![Coolify New Resource](docs/images/02-coolify-new-resource.png)
-*Placeholder: Coolify → + New Resource → Application.*
+
+*Coolify → + New Resource → Application.*
 
 ### Step 2.2 — Connect GitHub
 
