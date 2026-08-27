@@ -24,6 +24,7 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
+RUN apk add --no-cache wget
 # Server dist + deps
 COPY --from=server-build /app/server/dist ./server/dist
 COPY --from=server-build /app/server/package*.json ./server/
@@ -32,9 +33,9 @@ COPY --from=server-build /app/server/node_modules ./server/node_modules
 COPY --from=client-build /app/client/dist ./server/dist/client
 
 EXPOSE 3001
-# Coolify injects $PORT; server respects process.env.PORT || 3001
+# Coolify sets PORT dynamically (3000 in this deployment); try PORT then fall back to 3001/3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:${PORT:-3001}/api/health || exit 1
+  CMD sh -c 'wget -qO- http://127.0.0.1:${PORT:-3001}/api/health || wget -qO- http://127.0.0.1:3001/api/health || wget -qO- http://127.0.0.1:3000/api/health || exit 1'
 
 WORKDIR /app/server
 CMD ["node", "dist/index.js"]
