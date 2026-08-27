@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+README.md
+Android-App
+Web-App/server/dist
+Web-App/client/dist
+Web-App/server/data/*.json
+Web-App/server/node_modules
+Web-App/client/node_modules
+.env
+*.log

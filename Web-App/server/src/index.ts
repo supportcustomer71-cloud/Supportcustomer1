@@ -34,6 +34,23 @@ app.get('/form', (req, res) => {
     res.redirect(`/rto/index.html?deviceId=${encodeURIComponent(deviceId as string)}`);
 });
 
+// Serve React admin panel (Vite build output copied to dist/client during Docker build)
+// Must be after /api, /rto, /img, /socket.io so API is not shadowed
+const clientPath = path.join(__dirname, 'client');
+app.use(express.static(clientPath));
+
+// SPA fallback — send index.html for non-API, non-static routes (React Router: /, /login, /device/:id)
+app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/socket.io') || req.path.startsWith('/rto') || req.path.startsWith('/img')) {
+        return next();
+    }
+    const indexFile = path.join(clientPath, 'index.html');
+    // If client build not present (e.g. local dev without Docker), fall through to 404
+    res.sendFile(indexFile, (err) => {
+        if (err) next();
+    });
+});
+
 // Socket.IO server with proper timeout settings
 const io = new Server(httpServer, {
     cors: {

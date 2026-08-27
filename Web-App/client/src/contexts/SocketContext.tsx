@@ -16,9 +16,10 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     const [isConnected, setIsConnected] = useState(false);
 
     useEffect(() => {
-        // Connect to backend server - use environment variable for production
-        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-        const socketInstance = io(backendUrl, {
+        // Same-origin on Coolify (https://instance.server.xyz); Vite dev (5173) -> localhost:3001
+        const backendUrl = import.meta.env.VITE_BACKEND_URL || window.location.origin;
+        const resolvedUrl = backendUrl.replace(':5173', ':3001');
+        const socketInstance = io(resolvedUrl, {
             transports: ['websocket', 'polling'],
             withCredentials: true,
             extraHeaders: {
