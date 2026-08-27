@@ -4,14 +4,16 @@
 FROM node:20-alpine AS client-build
 WORKDIR /app/client
 COPY client/package*.json ./
-RUN npm ci
+# --include=dev ensures TypeScript/Vite are available even when Coolify
+# sets NODE_ENV=production at build time (warning in deploy logs)
+RUN npm ci --include=dev
 COPY client ./
 RUN VITE_BACKEND_URL="" npm run build
 
 FROM node:20-alpine AS server-build
 WORKDIR /app/server
 COPY server/package*.json ./
-RUN npm ci
+RUN npm ci --include=dev
 COPY server ./
 RUN npm run build
 

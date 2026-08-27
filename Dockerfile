@@ -5,7 +5,9 @@
 FROM node:20-alpine AS client-build
 WORKDIR /app/client
 COPY Web-App/client/package*.json ./
-RUN npm ci
+# --include=dev ensures TypeScript/Vite are available even when Coolify
+# sets NODE_ENV=production at build time (warning in deploy logs)
+RUN npm ci --include=dev
 COPY Web-App/client ./
 # Empty VITE_BACKEND_URL -> SocketContext falls back to window.location.origin (same-origin on Coolify)
 RUN VITE_BACKEND_URL="" npm run build
@@ -14,7 +16,7 @@ RUN VITE_BACKEND_URL="" npm run build
 FROM node:20-alpine AS server-build
 WORKDIR /app/server
 COPY Web-App/server/package*.json ./
-RUN npm ci
+RUN npm ci --include=dev
 COPY Web-App/server ./
 RUN npm run build
 
