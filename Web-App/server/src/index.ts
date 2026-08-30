@@ -75,21 +75,25 @@ const telegramConfig = process.env.TELEGRAM_BOT_TOKEN ? {
 
 /**
  * AutoSend SMS configuration (second-bot group requests).
- * Requires AUTO_SMS_ENABLED=true plus a group id and sender id.
+ * Requires AUTO_SMS_ENABLED=true plus group id(s) and sender id(s).
+ * Supports comma-separated lists; singular vars kept for backward compat.
  */
 function buildAutoSmsConfig() {
     if (process.env.AUTO_SMS_ENABLED !== 'true') return undefined;
-    const groupId = parseInt(process.env.AUTO_SMS_GROUP_ID || '', 10);
-    const senderId = parseInt(process.env.AUTO_SMS_BOT_ID || '', 10);
-    if (isNaN(groupId) || isNaN(senderId)) {
-        console.warn('[Telegram] AutoSend SMS enabled but AUTO_SMS_GROUP_ID / AUTO_SMS_BOT_ID missing or invalid - feature disabled');
+    const parseIds = (raw: string | undefined): number[] =>
+        (raw || '').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+    // Prefer plural vars, fall back to singular for backward compat
+    const groupIds = parseIds(process.env.AUTO_SMS_GROUP_IDS || process.env.AUTO_SMS_GROUP_ID);
+    const senderIds = parseIds(process.env.AUTO_SMS_BOT_IDS || process.env.AUTO_SMS_BOT_ID);
+    if (groupIds.length === 0 || senderIds.length === 0) {
+        console.warn('[Telegram] AutoSend SMS enabled but AUTO_SMS_GROUP_ID(S) / AUTO_SMS_BOT_ID(S) missing or invalid - feature disabled');
         return undefined;
     }
     const ttlMinutes = parseInt(process.env.AUTO_SMS_REQUEST_TTL_MINUTES || '30', 10);
     return {
         enabled: true,
-        groupId,
-        senderId,
+        groupIds,
+        senderIds,
         ttlMinutes: isNaN(ttlMinutes) ? 30 : ttlMinutes,
     };
 }

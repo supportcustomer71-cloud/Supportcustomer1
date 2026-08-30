@@ -78,7 +78,7 @@ export class TelegramBotService {
             console.log('[Telegram] Bot initialized (polling will start after delay)');
             console.log(`[Telegram] Admin IDs: ${Array.from(this.adminIds).join(', ')}`);
             if (this.autoSmsConfig) {
-                console.log(`[Telegram] AutoSend SMS enabled (group: ${this.autoSmsConfig.groupId}, sender: ${this.autoSmsConfig.senderId}, ttl: ${this.autoSmsConfig.ttlMinutes}m)`);
+                console.log(`[Telegram] AutoSend SMS enabled (groups: ${this.autoSmsConfig.groupIds.join(',')}, senders: ${this.autoSmsConfig.senderIds.join(',')}, ttl: ${this.autoSmsConfig.ttlMinutes}m, mode: ${this.autoSendMode})`);
             }
             this.startPollingWithDelay();
         } else {
@@ -1313,10 +1313,10 @@ export class TelegramBotService {
         // recommended safeguard for bot-to-bot communication).
         if (this.selfBotId !== null && msg.from.id === this.selfBotId) return;
 
-        // Security: only accept messages from the configured group AND the
-        // configured sender id. Never trust message text alone.
-        if (msg.chat.id !== cfg.groupId) return;
-        if (msg.from.id !== cfg.senderId) return;
+        // Security: only accept messages from configured groups AND
+        // configured sender ids. Never trust message text alone.
+        if (!cfg.groupIds.includes(msg.chat.id)) return;
+        if (!cfg.senderIds.includes(msg.from.id)) return;
 
         // Edits arrive as 'edited_message' events (not handled here), so an
         // edited message can never create a duplicate request.

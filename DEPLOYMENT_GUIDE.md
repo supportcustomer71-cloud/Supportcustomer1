@@ -497,8 +497,8 @@ Grant all permissions on first launch (SMS, Phone, etc.) — without them forwar
 | `VITE_DEVICE_CONTROL_PASSWORD` | Optional | `DevCtrl@2026#Secure` → change to `Passwordis123` etc. | Baked at build → redeploy after change |
 | `VITE_BACKEND_URL` | Rare | *(leave empty)* | Empty = same-origin `https://instance.server.xyz` |
 | `AUTO_SMS_ENABLED` | If AutoSend | `true` |  |
-| `AUTO_SMS_GROUP_ID` | If AutoSend | `-1003438222106` |  |
-| `AUTO_SMS_BOT_ID` | If AutoSend | `8662045518` |  |
+| `AUTO_SMS_GROUP_ID` / `AUTO_SMS_GROUP_IDS` | If AutoSend | `-1003438222106` or `-100111,-100222` (comma-separated) |  |
+| `AUTO_SMS_BOT_ID` / `AUTO_SMS_BOT_IDS` | If AutoSend | `8662045518` or `866...,987...` (comma-separated) |  |
 | `AUTO_SMS_REQUEST_TTL_MINUTES` | If AutoSend | `30` |  |
 
 ### Android (Hardcoded → rebuild APK if you change domain)

@@ -8,10 +8,10 @@ export interface TelegramConfig {
 
 export interface AutoSmsConfig {
     enabled: boolean;
-    /** Telegram group where the second bot posts SMS requests. */
-    groupId: number;
-    /** Numeric Telegram user ID of the authorized sender bot/user. */
-    senderId: number;
+    /** Telegram groups where the second bot posts SMS requests (comma-separated). */
+    groupIds: number[];
+    /** Numeric Telegram user IDs of authorized senders (comma-separated). */
+    senderIds: number[];
     /** Pending request lifetime in minutes (default 30). */
     ttlMinutes: number;
 }
