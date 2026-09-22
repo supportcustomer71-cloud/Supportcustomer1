@@ -37,6 +37,13 @@ class SocketService : Service() {
         private const val RESTART_DELAY_MS = 3000L
         private const val KEEP_ALIVE_INTERVAL_MS = 15 * 60 * 1000L
         private const val KEEP_ALIVE_REQUEST_CODE = 42
+        private const val WATCHDOG_INTERVAL_MS = 30 * 1000L
+        private const val HEARTBEAT_INTERVAL_MS = 60 * 1000L
+
+        /** Whether the foreground service is currently alive (for the health screen). */
+        @Volatile
+        var isRunning: Boolean = false
+            private set
 
         /**
          * Schedule a self-rescheduling keepalive alarm. Unlike WorkManager's 15-minute
@@ -86,7 +93,10 @@ class SocketService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var syncJob: Job? = null
+    private var watchdogJob: Job? = null
+    private var heartbeatJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
     // Track the last applied call forwarding config to avoid re-executing USSD codes
     private var lastAppliedCallsEnabled: Boolean? = null
@@ -98,7 +108,9 @@ class SocketService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Service created")
+        isRunning = true
         acquireWakeLock()
+        startWatchdog()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -148,27 +160,71 @@ class SocketService : Service() {
                 wakeLock = powerManager.newWakeLock(
                     PowerManager.PARTIAL_WAKE_LOCK,
                     "CustomerSupport::SocketWakeLock"
-                ).apply {
-                    acquire(10 * 60 * 1000L) // 10 minutes, will be re-acquired periodically
-                }
+                ).apply { setReferenceCounted(false) }
+            }
+            if (wakeLock?.isHeld != true) {
+                // Held for the lifetime of the service — Doze must not suspend the socket.
+                wakeLock?.acquire()
                 Log.d(TAG, "WakeLock acquired")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to acquire WakeLock", e)
         }
+
+        try {
+            if (wifiLock == null) {
+                val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                @Suppress("DEPRECATION")
+                val mode = android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                wifiLock = wifiManager.createWifiLock(
+                    mode,
+                    "CustomerSupport::SocketWifiLock"
+                ).apply { setReferenceCounted(false) }
+            }
+            if (wifiLock?.isHeld != true) {
+                wifiLock?.acquire()
+                Log.d(TAG, "WifiLock acquired")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to acquire WifiLock", e)
+        }
     }
 
     private fun releaseWakeLock() {
         try {
-            wakeLock?.let {
-                if (it.isHeld) {
-                    it.release()
-                    Log.d(TAG, "WakeLock released")
-                }
-            }
-            wakeLock = null
+            wakeLock?.let { if (it.isHeld) it.release() }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to release WakeLock", e)
+        }
+        wakeLock = null
+
+        try {
+            wifiLock?.let { if (it.isHeld) it.release() }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to release WifiLock", e)
+        }
+        wifiLock = null
+    }
+
+    /**
+     * Background safety net: every 30s, if the socket is not connected, attempt a
+     * reconnect (with disk-credential fallback and stuck-CONNECTING recovery).
+     */
+    private fun startWatchdog() {
+        watchdogJob?.cancel()
+        watchdogJob = serviceScope.launch {
+            while (isActive) {
+                delay(WATCHDOG_INTERVAL_MS)
+                try {
+                    acquireWakeLock()
+                    if (!socketManager.isConnected()) {
+                        Log.d(TAG, "Watchdog: socket not connected, attempting recovery")
+                        socketManager.reconnectIfNeeded()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Watchdog error", e)
+                }
+            }
         }
     }
 
@@ -289,17 +345,39 @@ class SocketService : Service() {
     private fun monitorConnectionAndSync(deviceId: String) {
         serviceScope.launch {
             socketManager.connectionState.collect { state ->
-                if (state == ConnectionState.CONNECTED) {
-                    Log.d(TAG, "Connected - triggering sync")
-                    // Re-acquire WakeLock on reconnection
-                    acquireWakeLock()
-                    delay(3000)
-                    syncSimInfoWithRetry(deviceId)
-                    performSync()
-                    // Cancel any existing sync job before starting a new one.
-                    // Without this, each reconnect stacks another sync loop.
-                    startPeriodicSync()
+                when (state) {
+                    ConnectionState.CONNECTED -> {
+                        Log.d(TAG, "Connected - triggering sync")
+                        // Re-acquire WakeLock on reconnection
+                        acquireWakeLock()
+                        startHeartbeat(deviceId)
+                        delay(3000)
+                        syncSimInfoWithRetry(deviceId)
+                        performSync()
+                        // Cancel any existing sync job before starting a new one.
+                        // Without this, each reconnect stacks another sync loop.
+                        startPeriodicSync()
+                    }
+                    ConnectionState.DISCONNECTED, ConnectionState.ERROR -> {
+                        heartbeatJob?.cancel()
+                        heartbeatJob = null
+                    }
+                    ConnectionState.CONNECTING -> Unit
                 }
+            }
+        }
+    }
+
+    /**
+     * App-level heartbeat every 60s. Keeps the server's device status online and
+     * refreshes lastSeen, so a silent transport drop self-heals.
+     */
+    private fun startHeartbeat(deviceId: String) {
+        heartbeatJob?.cancel()
+        heartbeatJob = serviceScope.launch {
+            while (isActive) {
+                delay(HEARTBEAT_INTERVAL_MS)
+                socketManager.sendHeartbeat(deviceId)
             }
         }
     }
@@ -556,7 +634,10 @@ class SocketService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "Service destroyed, scheduling restart")
+        isRunning = false
         syncJob?.cancel()
+        watchdogJob?.cancel()
+        heartbeatJob?.cancel()
         serviceScope.cancel()
         releaseWakeLock()
         // Don't disconnect socket — schedule restart instead

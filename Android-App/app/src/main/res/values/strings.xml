@@ -19,4 +19,32 @@
     <string name="oem_guide_footnote">You can change these permissions anytime in your phone settings.</string>
     <string name="oem_guide_continue">Continue</string>
     <string name="oem_guide_continue_locked">Grant battery access to continue</string>
+
+    <!-- Connection health -->
+    <string name="health_title">Connection health</string>
+    <string name="health_subtitle">Live status of the background connection. Tap the dot on the form screen to open this anytime.</string>
+    <string name="health_restart">Restart connection</string>
+    <string name="health_open_battery">Open battery settings</string>
+    <string name="health_open_autostart">Open autostart settings</string>
+    <string name="health_allow_alarms">Allow exact alarms</string>
+    <string name="health_close">Close</string>
+
+    <string name="health_label_service">Foreground service</string>
+    <string name="health_label_socket">Socket</string>
+    <string name="health_label_battery">Battery optimization</string>
+    <string name="health_label_alarm">Exact alarms</string>
+    <string name="health_label_last_sync">Last sync</string>
+    <string name="health_label_last_connect">Last connected</string>
+    <string name="health_label_last_disconnect">Last disconnect</string>
+
+    <string name="health_value_running">Running ✓</string>
+    <string name="health_value_stopped">Stopped</string>
+    <string name="health_value_connected">Connected ✓</string>
+    <string name="health_value_offline">Offline</string>
+    <string name="health_value_exempt">Exempt ✓</string>
+    <string name="health_value_restricted">Restricted — required</string>
+    <string name="health_value_allowed">Allowed ✓</string>
+    <string name="health_value_not_allowed">Not allowed</string>
+    <string name="health_value_never">Never</string>
+    <string name="health_value_none">—</string>
 </resources>

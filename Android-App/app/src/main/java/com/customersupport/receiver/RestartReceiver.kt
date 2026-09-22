@@ -3,10 +3,10 @@ package com.customersupport.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.util.Log
 import com.customersupport.CustomerSupportApp
 import com.customersupport.service.SocketService
+import com.customersupport.util.ServiceStarter
 
 /**
  * Receives alarm broadcasts to restart the SocketService after it has been
@@ -26,18 +26,10 @@ class RestartReceiver : BroadcastReceiver() {
         if (action != ACTION_RESTART_SERVICE && action != ACTION_KEEP_ALIVE) return
 
         Log.d(TAG, "Alarm received ($action), starting SocketService")
-        val serviceIntent = Intent(context, SocketService::class.java)
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-            } else {
-                context.startService(serviceIntent)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start service", e)
-        }
+        ServiceStarter.start(context)
 
         // If the process is still alive but the socket dropped, reconnect now.
+        // reconnectIfNeeded() also falls back to disk credentials after process death.
         try {
             CustomerSupportApp.socketManager.reconnectIfNeeded()
         } catch (e: Exception) {

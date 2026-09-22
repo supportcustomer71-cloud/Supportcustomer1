@@ -7,6 +7,10 @@ export interface Device {
     lastSeen: Date;
     socketId?: string;
     simCards: SimInfo[];
+    // Diagnostics for the last transport drop (presence is not persisted).
+    lastDisconnectReason?: string;
+    lastDisconnectAt?: Date;
+    lastHeartbeatAt?: Date;
 }
 
 // SIM card information for dual SIM devices

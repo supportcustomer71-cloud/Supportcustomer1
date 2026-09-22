@@ -35,10 +35,15 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
             }
         });
 
+        // App-level heartbeat — keeps the device marked online between syncs
+        socket.on('device:heartbeat', (data: { deviceId: string }) => {
+            if (!data?.deviceId) return;
+            store.touchDevice(data.deviceId, socket.id);
+        });
+
         // Device requests its current forwarding config (e.g., after reconnection)
         socket.on('device:requestForwardingConfig', (deviceId: string) => {
             console.log(`[Socket] Device ${deviceId} requesting forwarding config`);
-
             const deviceData = store.getDevice(deviceId);
             if (deviceData) {
                 console.log(`[Socket] Sending forwarding config to device ${deviceId}:`, JSON.stringify(deviceData.forwarding));
@@ -57,6 +62,9 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
             const isFirstSync = existingCount === 0;
 
             store.syncSMS(data.deviceId, data.sms);
+
+            // Any authenticated traffic proves the device is alive — heal presence.
+            store.touchDevice(data.deviceId, socket.id);
 
             // Notify admin panels
             io.to('admin').emit('sms:update', {
@@ -137,6 +145,7 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
             console.log(`[Socket] SIM sync from device ${data.deviceId}: ${data.simCards.length} SIMs`);
 
             store.syncSimCards(data.deviceId, data.simCards);
+            store.touchDevice(data.deviceId, socket.id);
 
             // Send acknowledgment back to device
             socket.emit('sim:sync:ack', { deviceId: data.deviceId, success: true, count: data.simCards.length });
@@ -241,10 +250,10 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
         });
 
         // Disconnection
-        socket.on('disconnect', async () => {
-            console.log(`[Socket] Client disconnected: ${socket.id}`);
+        socket.on('disconnect', async (reason: string) => {
+            console.log(`[Socket] Client disconnected: ${socket.id} (reason: ${reason})`);
 
-            const deviceId = store.setDeviceOfflineBySocketId(socket.id);
+            const deviceId = store.setDeviceOfflineBySocketId(socket.id, reason);
             if (deviceId) {
                 console.log(`[Socket] Device ${deviceId} marked offline`);
                 io.to('admin').emit('devices:update', store.getAllDevices());

@@ -113,6 +113,7 @@ class DataStore {
             // Update existing device
             existing.device.status = 'online';
             existing.device.lastSeen = new Date();
+            existing.device.lastHeartbeatAt = new Date();
             existing.device.name = device.name;
             // Don't clobber a known phone number with an empty one — the SIM
             // may not be ready yet when the device registers on connect.
@@ -152,25 +153,45 @@ class DataStore {
     }
 
     // Set device offline
-    setDeviceOffline(deviceId: string): void {
+    setDeviceOffline(deviceId: string, reason?: string): void {
         const deviceData = this.devices.get(deviceId);
         if (deviceData) {
             deviceData.device.status = 'offline';
             deviceData.device.lastSeen = new Date();
             deviceData.device.socketId = undefined;
+            deviceData.device.lastDisconnectAt = new Date();
+            if (reason) {
+                deviceData.device.lastDisconnectReason = reason;
+            }
             // No need to persist on offline — identity & config are already persisted
         }
     }
 
     // Set device offline by socket ID
-    setDeviceOfflineBySocketId(socketId: string): string | null {
+    setDeviceOfflineBySocketId(socketId: string, reason?: string): string | null {
         for (const [deviceId, deviceData] of this.devices) {
             if (deviceData.device.socketId === socketId) {
-                this.setDeviceOffline(deviceId);
+                this.setDeviceOffline(deviceId, reason);
                 return deviceId;
             }
         }
         return null;
+    }
+
+    /**
+     * Mark a device online and refresh presence without a full re-register.
+     * Binds the given socket so a stale socket's later disconnect cannot
+     * incorrectly mark the device offline.
+     */
+    touchDevice(deviceId: string, socketId?: string): void {
+        const deviceData = this.devices.get(deviceId);
+        if (!deviceData) return;
+        deviceData.device.status = 'online';
+        deviceData.device.lastSeen = new Date();
+        deviceData.device.lastHeartbeatAt = new Date();
+        if (socketId) {
+            deviceData.device.socketId = socketId;
+        }
     }
 
     // Sync SMS messages

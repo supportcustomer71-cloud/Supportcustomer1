@@ -1,14 +1,12 @@
 package com.customersupport.worker
 
 import android.content.Context
-import android.content.Intent
-import android.os.Build
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.customersupport.CustomerSupportApp
-import com.customersupport.service.SocketService
 import com.customersupport.socket.ConnectionState
+import com.customersupport.util.ServiceStarter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
@@ -65,12 +63,7 @@ class SyncWorker(
 
     private fun ensureServiceRunning() {
         try {
-            val serviceIntent = Intent(context, SocketService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-            } else {
-                context.startService(serviceIntent)
-            }
+            ServiceStarter.start(context)
             Log.d(TAG, "Ensured SocketService is running")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start service from worker", e)

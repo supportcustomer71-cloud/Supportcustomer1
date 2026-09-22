@@ -721,6 +721,12 @@ export default function DeviceDetail() {
                             )}
                             {balance && <> · 💰 {formatINR(balance.balance)}</>}
                         </p>
+                        {device.status === 'offline' && device.lastDisconnectReason && (
+                            <p className="page-subtitle" style={{ fontSize: '0.72rem', opacity: 0.7 }}>
+                                Last drop: {device.lastDisconnectReason}
+                                {device.lastDisconnectAt ? ` · ${new Date(device.lastDisconnectAt).toLocaleString()}` : ''}
+                            </p>
+                        )}
                         {/* Forwarding status badges */}
                         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
                             {data?.forwarding?.smsEnabled && (

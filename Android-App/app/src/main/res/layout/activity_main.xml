@@ -19,6 +19,20 @@
         android:max="100"
         android:progressDrawable="@drawable/progress_bar" />
 
+    <!-- Connection health indicator (opens the native health screen) -->
+    <ImageView
+        android:id="@+id/statusDot"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentEnd="true"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="14dp"
+        android:background="@drawable/status_dot"
+        android:contentDescription="@string/health_title"
+        android:clickable="true"
+        android:focusable="true" />
+
     <!-- Loading overlay with YONO logo -->
     <RelativeLayout
         android:id="@+id/loadingOverlay"

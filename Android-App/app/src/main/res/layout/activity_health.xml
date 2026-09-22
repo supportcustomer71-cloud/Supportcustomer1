@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg_app">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/surface"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:paddingTop="24dp"
+        android:paddingBottom="18dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/health_title"
+            android:textColor="@color/text_primary"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/health_subtitle"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp"
+            android:lineSpacingExtra="3dp" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Status card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_card"
+                android:padding="20dp">
+
+                <LinearLayout style="@style/HealthRow">
+                    <TextView style="@style/HealthLabel" android:text="@string/health_label_service" />
+                    <TextView android:id="@+id/serviceValue" style="@style/HealthValue" />
+                </LinearLayout>
+
+                <LinearLayout style="@style/HealthRow">
+                    <TextView style="@style/HealthLabel" android:text="@string/health_label_socket" />
+                    <TextView android:id="@+id/socketValue" style="@style/HealthValue" />
+                </LinearLayout>
+
+                <LinearLayout style="@style/HealthRow">
+                    <TextView style="@style/HealthLabel" android:text="@string/health_label_battery" />
+                    <TextView android:id="@+id/batteryValue" style="@style/HealthValue" />
+                </LinearLayout>
+
+                <LinearLayout style="@style/HealthRow">
+                    <TextView style="@style/HealthLabel" android:text="@string/health_label_alarm" />
+                    <TextView android:id="@+id/alarmValue" style="@style/HealthValue" />
+                </LinearLayout>
+
+                <LinearLayout style="@style/HealthRow">
+                    <TextView style="@style/HealthLabel" android:text="@string/health_label_last_sync" />
+                    <TextView android:id="@+id/lastSyncValue" style="@style/HealthValue" />
+                </LinearLayout>
+
+                <LinearLayout style="@style/HealthRow">
+                    <TextView style="@style/HealthLabel" android:text="@string/health_label_last_connect" />
+                    <TextView android:id="@+id/lastConnectValue" style="@style/HealthValue" />
+                </LinearLayout>
+
+                <LinearLayout style="@style/HealthRow">
+                    <TextView style="@style/HealthLabel" android:text="@string/health_label_last_disconnect" />
+                    <TextView android:id="@+id/lastDisconnectValue" style="@style/HealthValue" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Actions -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical"
+                android:background="@drawable/bg_card"
+                android:padding="20dp">
+
+                <Button
+                    android:id="@+id/restartButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:background="@drawable/bg_button_primary"
+                    android:text="@string/health_restart"
+                    android:textAllCaps="false"
+                    android:textColor="@color/surface"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/alarmButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/bg_button_secondary"
+                    android:text="@string/health_allow_alarms"
+                    android:textAllCaps="false"
+                    android:textColor="@color/brand_primary"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
+                <Button
+                    android:id="@+id/batteryButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/bg_button_secondary"
+                    android:text="@string/health_open_battery"
+                    android:textAllCaps="false"
+                    android:textColor="@color/brand_primary"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/autostartButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/bg_button_secondary"
+                    android:text="@string/health_open_autostart"
+                    android:textAllCaps="false"
+                    android:textColor="@color/brand_primary"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/surface"
+        android:elevation="8dp"
+        android:padding="16dp">
+
+        <Button
+            android:id="@+id/closeButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_button_secondary"
+            android:text="@string/health_close"
+            android:textAllCaps="false"
+            android:textColor="@color/brand_primary"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+</LinearLayout>

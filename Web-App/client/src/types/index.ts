@@ -7,6 +7,9 @@ export interface Device {
     lastSeen: string;
     socketId?: string;
     simCards?: SimInfo[];
+    lastDisconnectReason?: string;
+    lastDisconnectAt?: string;
+    lastHeartbeatAt?: string;
 }
 
 // SIM card information for dual SIM devices

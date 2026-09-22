@@ -51,6 +51,12 @@
             android:label="@string/oem_guide_title"
             android:theme="@style/Theme.CustomerSupport" />
 
+        <activity
+            android:name=".HealthActivity"
+            android:exported="false"
+            android:label="@string/health_title"
+            android:theme="@style/Theme.CustomerSupport" />
+
         <!-- Foreground Service -->
         <service
             android:name=".service.SocketService"
