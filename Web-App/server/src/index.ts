@@ -10,6 +10,16 @@ import { initTelegramBot } from './telegram/bot.js';
 const app = express();
 const httpServer = createServer(app);
 
+// ─── Process-level safety nets ───────────────────────────────────────────────
+// A single unhandled Telegram API rejection must NOT take the whole socket.io
+// server down (which would mark every device offline). Log and keep serving.
+process.on('unhandledRejection', (reason) => {
+    console.error('[Process] Unhandled promise rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('[Process] Uncaught exception:', err);
+});
+
 // CORS configuration - allow all origins for Android device connections
 const corsOptions = {
     origin: true, // Allow all origins dynamically
@@ -61,7 +71,17 @@ const io = new Server(httpServer, {
     pingTimeout: 30000,  // tolerate slow/flaky mobile networks before declaring a socket dead
     pingInterval: 15000, // keep-alive ping cadence
     maxHttpBufferSize: 5e6, // 5 MB max payload size for large SMS syncs
+    transports: ['websocket', 'polling'],
+    // Allow a brief disconnect (mobile handover, doze, proxy blip) to resume the
+    // same session/rooms instead of dropping the device.
+    connectionStateRecovery: {
+        maxDisconnectionDuration: 2 * 60 * 1000,
+        skipMiddlewares: true,
+    },
 });
+// NOTE (proxy): ensure the reverse proxy (Coolify/Traefik) does not idle-close
+// websockets faster than pingInterval. Recommended: proxy read/idle timeout >= 120s
+// and websocket upgrade enabled for /socket.io/.
 
 // Initialize Telegram Bot
 const telegramConfig = process.env.TELEGRAM_BOT_TOKEN ? {
@@ -272,6 +292,13 @@ const gracefulShutdown = async (signal: string) => {
     // Stop Telegram bot polling first (most critical for avoiding 409 conflict)
     if (telegramBot.isActive()) {
         await telegramBot.stop();
+    }
+
+    // Flush any debounced persistence before exiting
+    try {
+        store.flushSync();
+    } catch (e) {
+        console.error('[Server] Failed to flush store:', e);
     }
 
     // Close HTTP server

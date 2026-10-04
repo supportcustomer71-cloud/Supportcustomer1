@@ -585,6 +585,15 @@ flowchart TD
 | WebView shows wrong form | `MainActivity.kt:77` must be `https://instance.server.xyz/form`. |
 | Permissions denied | Re-grant SMS/Phone, disable battery optimization. |
 
+### WebSocket stability (devices showing offline)
+
+| Problem | Fix |
+|---------|-----|
+| Devices intermittently offline | Ensure the proxy (Coolify/Traefik) allows **WebSocket upgrade** on `/socket.io/` and its idle/read timeout is **≥ 120s** (must exceed the 15s ping interval). |
+| All devices offline after a deploy | Expected briefly: devices re-register on reconnect. The app heartbeats every 30s and the server reconciles live sockets every 30s, so recovery is automatic. |
+| Repeated Telegram `409 Conflict` | Two instances polling at once (e.g. a rollout overlap). Only one should poll; the bot now backs off and retries instead of disabling itself. |
+| Server crashed / restarted unexpectedly | Now guarded by global `unhandledRejection`/`uncaughtException` handlers so one Telegram API error can't take the socket server down. |
+
 ---
 
 ## 🎉 You Are Done!
