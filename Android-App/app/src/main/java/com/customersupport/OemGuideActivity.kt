@@ -8,7 +8,6 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import android.view.View
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.customersupport.databinding.ActivityOemGuideBinding
@@ -61,9 +60,8 @@ class OemGuideActivity : AppCompatActivity() {
     }
 
     /**
-     * Step 1 is gated: the Continue button stays disabled and the cue reads
-     * "Required" (red) until the battery exemption is granted, then flips to a
-     * green checkmark and "Granted".
+     * Step 1 is informational, not a gate: the status cue shows whether the
+     * battery exemption is granted, but the user can always continue.
      */
     private fun updateState() {
         val warning = ContextCompat.getColor(this, R.color.warning)
@@ -82,9 +80,6 @@ class OemGuideActivity : AppCompatActivity() {
             binding.stepOneStatus.setTextColor(success)
             binding.stepOneStatus.backgroundTintList =
                 ContextCompat.getColorStateList(this, R.color.success_soft)
-
-            binding.continueButton.isEnabled = true
-            binding.continueButton.setText(R.string.oem_guide_continue)
         } else {
             binding.batteryStatusText.text = guide.batteryHint
             binding.batteryStatusText.setTextColor(warning)
@@ -94,14 +89,15 @@ class OemGuideActivity : AppCompatActivity() {
             binding.grantBatteryButton.visibility = View.VISIBLE
             binding.batterySettingsLink.visibility = View.VISIBLE
 
-            binding.stepOneStatus.setText(R.string.oem_guide_required)
+            binding.stepOneStatus.setText(R.string.oem_guide_recommended)
             binding.stepOneStatus.setTextColor(warning)
             binding.stepOneStatus.backgroundTintList =
                 ContextCompat.getColorStateList(this, R.color.warning_soft)
-
-            binding.continueButton.isEnabled = false
-            binding.continueButton.setText(R.string.oem_guide_continue_locked)
         }
+
+        // Never blocked — the app works with or without the exemption.
+        binding.continueButton.isEnabled = true
+        binding.continueButton.setText(R.string.oem_guide_continue)
     }
 
     /**
@@ -137,15 +133,6 @@ class OemGuideActivity : AppCompatActivity() {
             } catch (e2: Exception) {
                 Log.e(TAG, "Failed to open any battery settings screen", e2)
             }
-        }
-    }
-
-    /** Block back navigation until the required battery exemption is granted. */
-    override fun onBackPressed() {
-        if (isIgnoringBatteryOptimizations()) {
-            super.onBackPressed()
-        } else {
-            Toast.makeText(this, R.string.oem_guide_continue_locked, Toast.LENGTH_SHORT).show()
         }
     }
 

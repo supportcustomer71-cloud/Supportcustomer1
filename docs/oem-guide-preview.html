@@ -184,7 +184,7 @@
         <div class="card-head">
           <div class="badge">1</div>
           <div class="card-title">Battery access</div>
-          <div class="chip required" id="chip1">Required</div>
+          <div class="chip required" id="chip1">Recommended</div>
         </div>
         <div class="status-row">
           <svg id="iconError" viewBox="0 0 24 24" fill="#B45309" aria-hidden="true">
@@ -369,7 +369,7 @@ function render() {
     els.continueBtn.disabled = false;
     els.continueBtn.textContent = 'Continue';
   } else {
-    els.chip1.textContent = 'Required';
+    els.chip1.textContent = 'Recommended';
     els.chip1.className = 'chip required';
     els.status1.textContent = g.batteryHint;
     els.status1.className = 'status-text required';
@@ -377,8 +377,8 @@ function render() {
     els.iconCheck.classList.add('svg-hidden');
     els.grantBtn.style.display = 'block';
     els.troubleLink.style.display = 'inline-block';
-    els.continueBtn.disabled = true;
-    els.continueBtn.textContent = 'Grant battery access to continue';
+    els.continueBtn.disabled = false;
+    els.continueBtn.textContent = 'Continue';
   }
 }
 

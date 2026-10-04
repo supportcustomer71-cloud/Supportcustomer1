@@ -7,7 +7,7 @@
     <string name="oem_guide_detected">Device: %1$s</string>
 
     <string name="oem_guide_step1_title">Battery access</string>
-    <string name="oem_guide_required">Required</string>
+    <string name="oem_guide_recommended">Recommended</string>
     <string name="oem_guide_granted">Granted ✓</string>
     <string name="oem_guide_optional">Optional</string>
 
@@ -18,7 +18,6 @@
     <string name="oem_guide_open_settings">Open autostart settings</string>
     <string name="oem_guide_footnote">You can change these permissions anytime in your phone settings.</string>
     <string name="oem_guide_continue">Continue</string>
-    <string name="oem_guide_continue_locked">Grant battery access to continue</string>
 
     <!-- Connection health -->
     <string name="health_title">Connection health</string>
