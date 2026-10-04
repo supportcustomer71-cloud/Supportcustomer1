@@ -58,8 +58,8 @@ const io = new Server(httpServer, {
         methods: ['GET', 'POST'],
         credentials: true,
     },
-    pingTimeout: 20000,  // 20s — detect dead Android sockets quickly (was 60s)
-    pingInterval: 10000, // Ping every 10s for faster drop detection (was 25s)
+    pingTimeout: 30000,  // tolerate slow/flaky mobile networks before declaring a socket dead
+    pingInterval: 15000, // keep-alive ping cadence
     maxHttpBufferSize: 5e6, // 5 MB max payload size for large SMS syncs
 });
 

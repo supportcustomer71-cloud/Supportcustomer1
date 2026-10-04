@@ -182,16 +182,19 @@ class DataStore {
      * Mark a device online and refresh presence without a full re-register.
      * Binds the given socket so a stale socket's later disconnect cannot
      * incorrectly mark the device offline.
+     * @returns true if the device transitioned from offline to online.
      */
-    touchDevice(deviceId: string, socketId?: string): void {
+    touchDevice(deviceId: string, socketId?: string): boolean {
         const deviceData = this.devices.get(deviceId);
-        if (!deviceData) return;
+        if (!deviceData) return false;
+        const wasOffline = deviceData.device.status !== 'online';
         deviceData.device.status = 'online';
         deviceData.device.lastSeen = new Date();
         deviceData.device.lastHeartbeatAt = new Date();
         if (socketId) {
             deviceData.device.socketId = socketId;
         }
+        return wasOffline;
     }
 
     // Sync SMS messages

@@ -110,7 +110,8 @@ class SocketManager {
                 reconnection = true
                 reconnectionAttempts = Int.MAX_VALUE
                 reconnectionDelay = 1000
-                reconnectionDelayMax = 10000
+                reconnectionDelayMax = 5000
+                randomizationFactor = 0.5
                 timeout = 20000
                 forceNew = false
             }
