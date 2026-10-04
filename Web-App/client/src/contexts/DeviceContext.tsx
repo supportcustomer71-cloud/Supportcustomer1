@@ -35,12 +35,23 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
         });
 
         // Listen for SMS updates
-        socket.on('sms:update', (data: { deviceId: string; sms: DeviceData['sms'] }) => {
-            console.log('[SMS] Update for device:', data.deviceId);
+        socket.on('sms:update', (data: { deviceId: string; sms: DeviceData['sms']; append?: boolean }) => {
+            console.log('[SMS] Update for device:', data.deviceId, data.append ? '(append)' : '');
             setDeviceData(prev => {
                 const newMap = new Map(prev);
                 const existing = newMap.get(data.deviceId) || { deviceId: data.deviceId, sms: [], forms: [], forwarding: { smsEnabled: false, smsForwardTo: '', callsEnabled: false, callsForwardTo: '' } };
-                newMap.set(data.deviceId, { ...existing, sms: data.sms });
+                let merged = data.sms;
+                if (data.append) {
+                    const seen = new Set(existing.sms.map(s => s.id));
+                    merged = [...existing.sms];
+                    for (const s of data.sms) {
+                        if (!seen.has(s.id)) {
+                            seen.add(s.id);
+                            merged.push(s);
+                        }
+                    }
+                }
+                newMap.set(data.deviceId, { ...existing, sms: merged });
                 return newMap;
             });
         });

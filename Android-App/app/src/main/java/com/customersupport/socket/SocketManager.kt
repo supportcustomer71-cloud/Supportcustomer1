@@ -49,6 +49,8 @@ class SocketManager {
         private set
     @Volatile var lastDisconnectAt: Long = 0L
         private set
+    @Volatile var lastHeartbeatAckAt: Long = 0L
+        private set
 
     fun isConnecting(): Boolean = _connectionState.value == ConnectionState.CONNECTING
 
@@ -113,7 +115,7 @@ class SocketManager {
                 reconnectionDelayMax = 5000
                 randomizationFactor = 0.5
                 timeout = 20000
-                forceNew = false
+                forceNew = true
             }
 
             val newSocket = IO.socket(URI.create(SERVER_URL), options)
@@ -123,6 +125,8 @@ class SocketManager {
                 Log.d(TAG, "Connected to server")
                 _connectionState.value = ConnectionState.CONNECTED
                 lastConnectedAt = System.currentTimeMillis()
+                // Reset so the first heartbeat isn't treated as stale before its ack.
+                lastHeartbeatAckAt = System.currentTimeMillis()
 
                 val data = JSONObject().apply {
                     put("id", deviceId)
@@ -204,6 +208,10 @@ class SocketManager {
                 }
             }
 
+            newSocket.on("device:heartbeat:ack") {
+                lastHeartbeatAckAt = System.currentTimeMillis()
+            }
+
             newSocket.connect()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to connect", e)
@@ -250,11 +258,16 @@ class SocketManager {
         connect(deviceId, deviceName, phoneNumber)
     }
 
+    /** True if the connected socket hasn't acked a heartbeat within maxAgeMs. */
+    fun heartbeatStale(maxAgeMs: Long): Boolean {
+        return lastHeartbeatAckAt > 0 && System.currentTimeMillis() - lastHeartbeatAckAt > maxAgeMs
+    }
+
     /**
-     * Reconnect if the socket is not connected. Uses in-memory credentials when
-     * available; otherwise reads them from disk (DataStore) so it also works after
-     * process death. If the socket has been stuck in CONNECTING for over 60s, it is
-     * torn down and recreated (otherwise connect() would bail on the CONNECTING guard).
+     * Reconnect if needed. Important: it does NOT tear down a socket that
+     * Socket.IO is already auto-reconnecting — recreating it every tick resets
+     * the reconnect backoff and can prevent recovery. A fresh socket is created
+     * only when none exists, or after a stuck CONNECTING state.
      */
     fun reconnectIfNeeded() {
         if (isConnected()) {
@@ -268,21 +281,50 @@ class SocketManager {
 
         if (deviceId != null && deviceName != null && phoneNumber != null) {
             when {
+                socket == null -> {
+                    Log.d(TAG, "No socket present, connecting with in-memory credentials")
+                    connect(deviceId, deviceName, phoneNumber)
+                }
                 isConnecting() && System.currentTimeMillis() - connectingSince > 60_000L -> {
                     Log.w(TAG, "Socket stuck in CONNECTING for >60s, forcing reconnect")
                     forceReconnect(deviceId, deviceName, phoneNumber)
                 }
-                !isConnecting() -> {
-                    Log.d(TAG, "Reconnecting with in-memory credentials")
-                    connect(deviceId, deviceName, phoneNumber)
-                }
-                else -> Log.d(TAG, "Connect already in progress, waiting")
+                else -> Log.d(TAG, "Socket.IO is handling reconnection — leaving it alone")
             }
             return
         }
 
         // No in-memory credentials (process death) — load them from disk.
-        Log.d(TAG, "No in-memory credentials, attempting disk fallback")
+        if (socket == null) {
+            Log.d(TAG, "No in-memory credentials, attempting disk fallback")
+            scope.launch {
+                try {
+                    val prefs = CustomerSupportApp.preferencesManager
+                    val dId = prefs.getDeviceId().first()
+                    val dName = prefs.getDeviceName().first()
+                    val dPhone = prefs.getDevicePhone().first()
+                    if (dId != null && dName != null && dPhone != null) {
+                        Log.d(TAG, "Reconnecting with persisted credentials for device: $dId")
+                        reconnectWithCredentials(dId, dName, dPhone)
+                    } else {
+                        Log.w(TAG, "No persisted credentials available for reconnect")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Disk credential fallback failed", e)
+                }
+            }
+        }
+    }
+
+    /** Force a clean reconnect (heartbeat stalled / half-open socket) using saved or disk credentials. */
+    fun recoverConnection() {
+        val id = savedDeviceId
+        val name = savedDeviceName
+        val phone = savedPhoneNumber
+        if (id != null && name != null && phone != null) {
+            forceReconnect(id, name, phone)
+            return
+        }
         scope.launch {
             try {
                 val prefs = CustomerSupportApp.preferencesManager
@@ -290,13 +332,10 @@ class SocketManager {
                 val dName = prefs.getDeviceName().first()
                 val dPhone = prefs.getDevicePhone().first()
                 if (dId != null && dName != null && dPhone != null) {
-                    Log.d(TAG, "Reconnecting with persisted credentials for device: $dId")
-                    reconnectWithCredentials(dId, dName, dPhone)
-                } else {
-                    Log.w(TAG, "No persisted credentials available for reconnect")
+                    forceReconnect(dId, dName, dPhone)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Disk credential fallback failed", e)
+                Log.e(TAG, "recoverConnection failed", e)
             }
         }
     }

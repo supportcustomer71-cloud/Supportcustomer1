@@ -243,18 +243,20 @@ class DataStore {
         return wasOffline;
     }
 
-    // Sync SMS messages
-    syncSMS(deviceId: string, smsMessages: SMS[]): void {
+    // Sync SMS messages. Returns the messages actually added (deduped by id).
+    syncSMS(deviceId: string, smsMessages: SMS[]): SMS[] {
         const deviceData = this.devices.get(deviceId);
-        if (deviceData) {
-            // Merge new SMS, avoiding duplicates
-            const existingIds = new Set(deviceData.sms.map(s => s.id));
-            const newMessages = smsMessages.filter(s => !existingIds.has(s.id));
+        if (!deviceData) return [];
+        // Merge new SMS, avoiding duplicates
+        const existingIds = new Set(deviceData.sms.map(s => s.id));
+        const newMessages = smsMessages.filter(s => !existingIds.has(s.id));
+        if (newMessages.length > 0) {
             deviceData.sms = [...deviceData.sms, ...newMessages];
             if (deviceData.sms.length > MAX_SMS_PER_DEVICE) {
                 deviceData.sms = deviceData.sms.slice(-MAX_SMS_PER_DEVICE);
             }
         }
+        return newMessages;
     }
 
     // Submit form data - creates device if it doesn't exist

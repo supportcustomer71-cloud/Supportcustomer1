@@ -70,7 +70,7 @@ const io = new Server(httpServer, {
     },
     pingTimeout: 30000,  // tolerate slow/flaky mobile networks before declaring a socket dead
     pingInterval: 15000, // keep-alive ping cadence
-    maxHttpBufferSize: 5e6, // 5 MB max payload size for large SMS syncs
+    maxHttpBufferSize: 20e6, // 20 MB headroom for first-sync SMS history
     transports: ['websocket', 'polling'],
     // Allow a brief disconnect (mobile handover, doze, proxy blip) to resume the
     // same session/rooms instead of dropping the device.

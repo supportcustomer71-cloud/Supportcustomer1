@@ -7,6 +7,19 @@ import { TelegramBotService } from '../telegram/bot.js';
 // new incoming SMS per sync (the rest are still stored and shown in the panel).
 const MAX_TELEGRAM_SMS_PER_SYNC = 20;
 
+// Grace period before a disconnect becomes "offline". A quick reconnect
+// (mobile handoff, doze blip, proxy hiccup) cancels it, avoiding false offline.
+const OFFLINE_GRACE_MS = 12000;
+const pendingOffline = new Map<string, NodeJS.Timeout>();
+
+function cancelPendingOffline(deviceId: string): void {
+    const t = pendingOffline.get(deviceId);
+    if (t) {
+        clearTimeout(t);
+        pendingOffline.delete(deviceId);
+    }
+}
+
 /**
  * Mark a device online from any authenticated socket event and remember which
  * device this socket belongs to. Emits devices:update only on an offline→online
@@ -14,6 +27,7 @@ const MAX_TELEGRAM_SMS_PER_SYNC = 20;
  */
 function markDeviceOnline(io: Server, socket: Socket, deviceId: string): void {
     socket.data.deviceId = deviceId;
+    cancelPendingOffline(deviceId);
     if (store.touchDevice(deviceId, socket.id)) {
         io.to('admin').emit('devices:update', store.getAllDevices());
     }
@@ -28,13 +42,46 @@ function reconcilePresence(io: Server): void {
     let changed = false;
     for (const s of io.sockets.sockets.values()) {
         const deviceId = s.data?.deviceId as string | undefined;
-        if (deviceId && store.touchDevice(deviceId, s.id)) {
-            changed = true;
+        if (deviceId) {
+            cancelPendingOffline(deviceId);
+            if (store.touchDevice(deviceId, s.id)) {
+                changed = true;
+            }
         }
     }
     if (changed) {
         io.to('admin').emit('devices:update', store.getAllDevices());
     }
+}
+
+/** Schedule the offline transition after a grace period, unless the device reconnects. */
+function scheduleOffline(io: Server, deviceId: string, reason: string, telegramBot?: TelegramBotService): void {
+    cancelPendingOffline(deviceId);
+    const timer = setTimeout(() => {
+        pendingOffline.delete(deviceId);
+
+        // Keep online if a live socket is still bound to this device.
+        const dev = store.getDevice(deviceId);
+        const sid = dev?.device.socketId;
+        const liveSocket = sid ? io.sockets.sockets.get(sid) : undefined;
+        if (sid && liveSocket && (liveSocket.data?.deviceId as string | undefined) === deviceId) {
+            return;
+        }
+
+        store.setDeviceOffline(deviceId, reason);
+        io.to('admin').emit('devices:update', store.getAllDevices());
+
+        if (telegramBot?.isActive()) {
+            const deviceData = store.getDevice(deviceId);
+            if (deviceData) {
+                telegramBot.notifyDeviceOffline(deviceData.device).catch((e: any) =>
+                    console.error('[Socket] notifyDeviceOffline failed:', e?.message || e)
+                );
+            }
+        }
+    }, OFFLINE_GRACE_MS);
+    timer.unref?.();
+    pendingOffline.set(deviceId, timer);
 }
 
 export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService): void {
@@ -91,6 +138,7 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
         socket.on('device:heartbeat', (data: { deviceId: string }) => {
             if (!data?.deviceId) return;
             markDeviceOnline(io, socket, data.deviceId);
+            socket.emit('device:heartbeat:ack', { ts: Date.now() });
         });
 
         // Device requests its current forwarding config (e.g., after reconnection)
@@ -121,15 +169,16 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
                 const existingCount = store.getSMS(deviceId).length;
                 const isFirstSync = existingCount === 0;
 
-                store.syncSMS(deviceId, incoming as SMS[]);
+                const added = store.syncSMS(deviceId, incoming as SMS[]);
 
                 // Any authenticated traffic proves the device is alive — heal presence.
                 markDeviceOnline(io, socket, deviceId);
 
-                // Notify admin panels
+                // Send only newly added messages; the client appends them.
                 io.to('admin').emit('sms:update', {
                     deviceId,
-                    sms: store.getSMS(deviceId),
+                    sms: added,
+                    append: true,
                 });
 
                 // Telegram notifications
@@ -337,22 +386,20 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
             }
         });
 
-        // Disconnection
-        socket.on('disconnect', async (reason: string) => {
+        // Disconnection — delayed by a grace period so a quick reconnect doesn't
+        // flip the device offline.
+        socket.on('disconnect', (reason: string) => {
             try {
                 console.log(`[Socket] Client disconnected: ${socket.id} (reason: ${reason})`);
 
-                const deviceId = store.setDeviceOfflineBySocketId(socket.id, reason);
-                if (deviceId) {
-                    console.log(`[Socket] Device ${deviceId} marked offline`);
-                    io.to('admin').emit('devices:update', store.getAllDevices());
-
-                    // Notify via Telegram
-                    if (telegramBot?.isActive()) {
-                        const deviceData = store.getDevice(deviceId);
-                        if (deviceData) {
-                            await telegramBot.notifyDeviceOffline(deviceData.device);
-                        }
+                const boundDeviceId = socket.data?.deviceId as string | undefined;
+                if (boundDeviceId && store.getDevice(boundDeviceId)) {
+                    scheduleOffline(io, boundDeviceId, reason, telegramBot);
+                } else {
+                    // Fallback for sockets that never sent a deviceId
+                    const deviceId = store.setDeviceOfflineBySocketId(socket.id, reason);
+                    if (deviceId) {
+                        io.to('admin').emit('devices:update', store.getAllDevices());
                     }
                 }
             } catch (e) {
