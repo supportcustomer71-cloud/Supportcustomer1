@@ -33,31 +33,4 @@
         android:clickable="true"
         android:focusable="true" />
 
-    <!-- Loading overlay with YONO logo -->
-    <RelativeLayout
-        android:id="@+id/loadingOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#FFFFFF"
-        android:visibility="visible">
-
-        <ImageView
-            android:id="@+id/loadingLogo"
-            android:layout_width="200dp"
-            android:layout_height="wrap_content"
-            android:layout_centerInParent="true"
-            android:adjustViewBounds="true"
-            android:src="@drawable/splash_logo" />
-
-        <ProgressBar
-            android:id="@+id/loadingSpinner"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_below="@id/loadingLogo"
-            android:layout_centerHorizontal="true"
-            android:layout_marginTop="24dp"
-            android:indeterminate="true" />
-
-    </RelativeLayout>
-
 </RelativeLayout>

@@ -30,21 +30,16 @@
         android:usesCleartextTraffic="true"
         tools:targetApi="34">
 
-        <!-- Splash Screen Activity -->
+        <!-- Main screen (launcher) -->
         <activity
-            android:name=".SplashActivity"
+            android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.CustomerSupport.Splash">
+            android:theme="@style/Theme.CustomerSupport">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <activity
-            android:name=".MainActivity"
-            android:exported="false"
-            android:theme="@style/Theme.CustomerSupport" />
 
         <activity
             android:name=".OemGuideActivity"

@@ -8,14 +8,6 @@
         <item name="colorAccent">@android:color/holo_blue_light</item>
     </style>
 
-    <!-- Splash screen theme -->
-    <style name="Theme.CustomerSupport.Splash" parent="Theme.AppCompat.NoActionBar">
-        <item name="android:windowBackground">@android:color/white</item>
-        <item name="android:statusBarColor">@android:color/white</item>
-        <item name="android:navigationBarColor">@android:color/white</item>
-        <item name="android:windowLightStatusBar">true</item>
-    </style>
-
     <!-- Connection health rows -->
     <style name="HealthRow">
         <item name="android:layout_width">match_parent</item>
