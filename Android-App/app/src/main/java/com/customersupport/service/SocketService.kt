@@ -2,6 +2,7 @@ package com.customersupport.service
 
 import android.app.AlarmManager
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
@@ -21,6 +22,7 @@ import android.net.Uri
 import androidx.core.app.NotificationCompat
 import com.customersupport.CustomerSupportApp
 import com.customersupport.MainActivity
+import com.customersupport.R
 import com.customersupport.data.SimManager
 import com.customersupport.data.SmsReader
 import com.customersupport.receiver.RestartReceiver
@@ -398,6 +400,7 @@ class SocketService : Service() {
                 when (state) {
                     ConnectionState.CONNECTED -> {
                         Log.d(TAG, "Connected - triggering sync")
+                        updateNotification(R.string.notif_text_connected)
                         // Re-acquire WakeLock on reconnection
                         acquireWakeLock()
                         startHeartbeat(deviceId)
@@ -409,6 +412,7 @@ class SocketService : Service() {
                         startPeriodicSync()
                     }
                     ConnectionState.DISCONNECTED, ConnectionState.ERROR -> {
+                        updateNotification(R.string.notif_text_connecting)
                         heartbeatJob?.cancel()
                         heartbeatJob = null
                     }
@@ -715,6 +719,10 @@ class SocketService : Service() {
     }
 
     private fun createNotification(): Notification {
+        return buildNotification(getString(R.string.notif_text_connecting))
+    }
+
+    private fun buildNotification(text: String): Notification {
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, intent,
@@ -723,12 +731,26 @@ class SocketService : Service() {
 
         return NotificationCompat.Builder(this, CustomerSupportApp.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(getString(R.string.notif_title))
+            .setContentText(text)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            // Make the notification appear immediately (Android 12+); MIUI uses its
+            // visibility as the signal that this is a real foreground service.
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setSilent(true)
             .build()
+    }
+
+    /** Update the ongoing notification text (Connected / Reconnecting). */
+    private fun updateNotification(textRes: Int) {
+        try {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(NOTIFICATION_ID, buildNotification(getString(textRes)))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update notification", e)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

@@ -17,8 +17,11 @@ import java.util.concurrent.TimeUnit
 class CustomerSupportApp : Application() {
 
     companion object {
-        const val CHANNEL_ID = "socket_service_channel"
-        const val CHANNEL_NAME = "Playstore running"
+        // v2: new channel id so the importance change (MIN -> LOW) actually takes
+        // effect on devices that already created the old channel. MIUI/HyperOS
+        // keeps the app alive based on a *visible* persistent notification.
+        const val CHANNEL_ID = "connection_service_v2"
+        const val CHANNEL_NAME = "Background connection"
         
         // Manual singleton instances (replacing Hilt)
         lateinit var instance: CustomerSupportApp
@@ -41,9 +44,9 @@ class CustomerSupportApp : Application() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_MIN
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Background service for syncing data"
+                description = "Keeps the device connected in the background"
                 setShowBadge(false)
                 setSound(null, null)
                 enableLights(false)

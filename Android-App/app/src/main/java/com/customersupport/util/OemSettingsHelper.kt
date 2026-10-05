@@ -20,7 +20,7 @@ object OemSettingsHelper {
 
     private const val TAG = "OemSettingsHelper"
 
-    private data class OemIntent(val pkg: String, val cls: String)
+    private data class OemIntent(val pkg: String? = null, val cls: String? = null, val action: String? = null)
 
     /** Device-specific background guidance. */
     data class OemGuide(
@@ -33,6 +33,8 @@ object OemSettingsHelper {
         val autostartHint: String,
         /** Numbered steps shown under the autostart step. */
         val steps: List<String>,
+        /** True on OEMs where Autostart is mandatory to survive backgrounding. */
+        val autostartCritical: Boolean = false,
     )
 
     private val manufacturer: String get() = Build.MANUFACTURER.lowercase()
@@ -46,12 +48,16 @@ object OemSettingsHelper {
     private fun isAsus() = manufacturer.contains("asus")
     private fun isLetv() = manufacturer.contains("letv") || manufacturer.contains("leeco")
 
+    /** True on OEMs that kill background apps unless Autostart is enabled. */
+    fun isAutoStartCritical(): Boolean = isXiaomi() || isHuawei() || isOppo() || isVivo()
+
     fun getBatteryGuide(): OemGuide = when {
         isXiaomi() -> OemGuide(
             oemName = "Xiaomi / Redmi / POCO (MIUI)",
             batteryHint = "On MIUI, set this app to \"No restrictions\" under Battery → App battery saver.",
             autostartTitle = "Autostart (MIUI Security)",
             autostartHint = "MIUI blocks background apps unless Autostart is enabled in the Security app.",
+            autostartCritical = true,
             steps = listOf(
                 "Open Security → Permissions → Autostart and enable this app.",
                 "In Battery → App battery saver, choose \"No restrictions\".",
@@ -63,6 +69,7 @@ object OemSettingsHelper {
             batteryHint = "On EMUI, turn off \"Manage automatically\" in Battery → App launch for this app.",
             autostartTitle = "App launch (EMUI)",
             autostartHint = "EMUI needs App launch and Run in background enabled for background apps.",
+            autostartCritical = true,
             steps = listOf(
                 "Open App launch and turn off \"Manage automatically\".",
                 "Enable Auto-launch, Secondary launch and Run in background.",
@@ -74,6 +81,7 @@ object OemSettingsHelper {
             batteryHint = "On ColorOS, allow background running for this app in Battery settings.",
             autostartTitle = "Startup manager (ColorOS)",
             autostartHint = "ColorOS needs Auto-start and background running enabled.",
+            autostartCritical = true,
             steps = listOf(
                 "Open Startup manager and allow this app to auto-start.",
                 "In Battery → this app, enable \"Allow background running\".",
@@ -85,6 +93,7 @@ object OemSettingsHelper {
             batteryHint = "On Vivo, allow background power consumption for this app.",
             autostartTitle = "Autostart (Vivo)",
             autostartHint = "Vivo needs Autostart and background power enabled.",
+            autostartCritical = true,
             steps = listOf(
                 "Enable Autostart for this app.",
                 "In Battery → Background power consumption management, allow this app.",
@@ -150,7 +159,10 @@ object OemSettingsHelper {
     private val candidates: List<OemIntent> by lazy {
         when {
             isXiaomi() -> listOf(
-                OemIntent("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")
+                OemIntent("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
+                OemIntent(action = "miui.intent.action.OP_AUTO_START"),
+                OemIntent("com.miui.securitycenter", "com.miui.powercenter.PowerSettings"),
+                OemIntent("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
             )
             isHuawei() -> listOf(
                 OemIntent("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
@@ -188,16 +200,20 @@ object OemSettingsHelper {
         for (candidate in candidates) {
             try {
                 val intent = Intent().apply {
-                    component = ComponentName(candidate.pkg, candidate.cls)
+                    if (candidate.pkg != null && candidate.cls != null) {
+                        component = ComponentName(candidate.pkg, candidate.cls)
+                    } else if (candidate.action != null) {
+                        action = candidate.action
+                    }
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 if (context.packageManager.resolveActivity(intent, 0) != null) {
                     context.startActivity(intent)
-                    Log.d(TAG, "Opened OEM autostart screen: ${candidate.cls}")
+                    Log.d(TAG, "Opened OEM autostart screen: ${candidate.cls ?: candidate.action}")
                     return true
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "OEM autostart intent failed: ${candidate.cls}", e)
+                Log.w(TAG, "OEM autostart intent failed: ${candidate.cls ?: candidate.action}", e)
             }
         }
         return openAppDetails(context)

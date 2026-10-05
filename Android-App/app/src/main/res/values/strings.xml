@@ -7,6 +7,7 @@
     <string name="oem_guide_detected">Device: %1$s</string>
 
     <string name="oem_guide_step1_title">Battery access</string>
+    <string name="oem_guide_required">Required</string>
     <string name="oem_guide_recommended">Recommended</string>
     <string name="oem_guide_granted">Granted ✓</string>
     <string name="oem_guide_optional">Optional</string>
@@ -18,6 +19,13 @@
     <string name="oem_guide_open_settings">Open autostart settings</string>
     <string name="oem_guide_footnote">You can change these permissions anytime in your phone settings.</string>
     <string name="oem_guide_continue">Continue</string>
+
+    <string name="oem_guide_autostart_critical_body">This step is required on %1$s. Without it the system kills the app when it is minimized, even with battery set to "No restrictions".</string>
+
+    <!-- Foreground service notification (keeps the app alive, esp. on MIUI) -->
+    <string name="notif_title">Customer Support</string>
+    <string name="notif_text_connecting">Running — connecting…</string>
+    <string name="notif_text_connected">Running — connected</string>
 
     <!-- Connection health -->
     <string name="health_title">Connection health</string>
@@ -35,6 +43,9 @@
     <string name="health_label_last_sync">Last sync</string>
     <string name="health_label_last_connect">Last connected</string>
     <string name="health_label_last_disconnect">Last disconnect</string>
+    <string name="health_label_notifications">Notifications</string>
+
+    <string name="health_allow_notifications">Allow notifications</string>
 
     <string name="health_value_running">Running ✓</string>
     <string name="health_value_stopped">Stopped</string>

@@ -14,16 +14,18 @@ import com.customersupport.databinding.ActivityOemGuideBinding
 import com.customersupport.util.OemSettingsHelper
 
 /**
- * Mandatory background-setup screen.
+ * Background-setup screen.
  *
- * Step 1 (battery exemption) is required: the user cannot continue or leave
- * until it is granted. Step 2 (OEM autostart) is optional and can be skipped.
- * Every system screen is opened only through an explicit user tap.
+ * Step 1 (battery exemption) is recommended. Step 2 (OEM autostart) is required
+ * on aggressive OEMs (MIUI/HyperOS, EMUI, ColorOS, Vivo) and optional elsewhere.
+ * The user is never blocked — every system screen opens only on an explicit tap.
  */
 class OemGuideActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "OemGuideActivity"
+        private const val PREFS_NAME = "app_state"
+        private const val KEY_AUTOSTART_OPENED = "autostart_opened"
     }
 
     private lateinit var binding: ActivityOemGuideBinding
@@ -34,9 +36,25 @@ class OemGuideActivity : AppCompatActivity() {
         binding = ActivityOemGuideBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        val warning = ContextCompat.getColor(this, R.color.warning)
+        val brand = ContextCompat.getColor(this, R.color.brand_primary)
+
         binding.oemBannerText.text = getString(R.string.oem_guide_detected, guide.oemName)
         binding.step2Title.text = guide.autostartTitle
-        binding.step2BodyText.text = guide.autostartHint
+
+        if (guide.autostartCritical) {
+            binding.step2Status.setText(R.string.oem_guide_required)
+            binding.step2Status.setTextColor(warning)
+            binding.step2Status.backgroundTintList = ContextCompat.getColorStateList(this, R.color.warning_soft)
+            binding.step2BodyText.text =
+                getString(R.string.oem_guide_autostart_critical_body, guide.oemName) + "\n\n" + guide.autostartHint
+        } else {
+            binding.step2Status.setText(R.string.oem_guide_optional)
+            binding.step2Status.setTextColor(brand)
+            binding.step2Status.backgroundTintList = ContextCompat.getColorStateList(this, R.color.brand_soft)
+            binding.step2BodyText.text = guide.autostartHint
+        }
+
         binding.stepsText.text = guide.steps
             .mapIndexed { index, step -> "${index + 1}.  $step" }
             .joinToString("\n\n")
@@ -44,11 +62,12 @@ class OemGuideActivity : AppCompatActivity() {
         binding.grantBatteryButton.setOnClickListener { requestBatteryExemption() }
         binding.batterySettingsLink.setOnClickListener { openBatterySettingsList() }
         binding.openSettingsButton.setOnClickListener {
+            // Remember that the user was sent to Autostart so we stop re-surfacing it.
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit().putBoolean(KEY_AUTOSTART_OPENED, true).apply()
             OemSettingsHelper.openAutoStartSettings(this)
         }
-        binding.continueButton.setOnClickListener {
-            if (isIgnoringBatteryOptimizations()) finish()
-        }
+        binding.continueButton.setOnClickListener { finish() }
 
         updateState()
     }

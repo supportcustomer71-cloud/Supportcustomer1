@@ -10,7 +10,9 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.customersupport.databinding.ActivityHealthBinding
@@ -33,6 +35,10 @@ class HealthActivity : AppCompatActivity() {
     private lateinit var binding: ActivityHealthBinding
     private val socketManager get() = CustomerSupportApp.socketManager
 
+    private val notifPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { refresh() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityHealthBinding.inflate(layoutInflater)
@@ -46,6 +52,7 @@ class HealthActivity : AppCompatActivity() {
         binding.batteryButton.setOnClickListener { openBatteryExemption() }
         binding.autostartButton.setOnClickListener { OemSettingsHelper.openAutoStartSettings(this) }
         binding.alarmButton.setOnClickListener { openExactAlarmSettings() }
+        binding.notificationButton.setOnClickListener { openNotificationAccess() }
         binding.closeButton.setOnClickListener { finish() }
 
         refresh()
@@ -69,6 +76,10 @@ class HealthActivity : AppCompatActivity() {
         setStatus(binding.alarmValue, alarmAllowed)
         binding.alarmButton.visibility =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmAllowed) View.VISIBLE else View.GONE
+
+        val notificationsEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
+        setStatus(binding.notificationValue, notificationsEnabled)
+        binding.notificationButton.visibility = if (notificationsEnabled) View.GONE else View.VISIBLE
 
         binding.lastConnectValue.text = formatTime(socketManager.lastConnectedAt)
         binding.lastDisconnectValue.text = formatDisconnect()
@@ -126,6 +137,32 @@ class HealthActivity : AppCompatActivity() {
         } catch (e: Exception) {
             try {
                 startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun openNotificationAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        try {
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                }
+            )
+        } catch (e: Exception) {
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                )
             } catch (_: Exception) {
             }
         }

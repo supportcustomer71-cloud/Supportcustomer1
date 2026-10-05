@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import android.view.View
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -19,6 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.customersupport.databinding.ActivityMainBinding
+import com.customersupport.util.OemSettingsHelper
 import com.customersupport.util.ServiceStarter
 
 class MainActivity : AppCompatActivity() {
@@ -27,6 +29,7 @@ class MainActivity : AppCompatActivity() {
         private const val TAG = "MainActivity"
         private const val PREFS_NAME = "app_state"
         private const val KEY_OEM_GUIDE_SHOWN = "oem_guide_shown"
+        private const val KEY_AUTOSTART_OPENED = "autostart_opened"
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -63,12 +66,22 @@ class MainActivity : AppCompatActivity() {
         val allGranted = permissions.values.all { it }
         if (allGranted) {
             startSocketService()
+            requestNotificationPermissionIfNeeded()
             showBackgroundGuideIfNeeded()
         } else {
             // Close the app if permissions are denied
             // Permissions will be re-asked on next app launch (onCreate calls requestPermissionsIfNeeded)
             finishAffinity()
         }
+    }
+
+    // Notifications are optional for the app to function, but on MIUI/HyperOS a
+    // *visible* foreground-service notification is what keeps the app alive in
+    // the background. Never close the app if this is denied.
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        Log.d(TAG, "POST_NOTIFICATIONS granted=$granted")
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -138,7 +151,21 @@ class MainActivity : AppCompatActivity() {
             permissionLauncher.launch(permissionsToRequest.toTypedArray())
         } else {
             startSocketService()
+            requestNotificationPermissionIfNeeded()
             showBackgroundGuideIfNeeded()
+        }
+    }
+
+    /** Ask for notifications (optional) so the FGS notification is visible on MIUI/HyperOS. */
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            try {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } catch (e: Exception) {
+                Log.d(TAG, "Notification permission request failed", e)
+            }
         }
     }
 
@@ -176,18 +203,26 @@ class MainActivity : AppCompatActivity() {
 
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val oemGuideShown = prefs.getBoolean(KEY_OEM_GUIDE_SHOWN, false)
+        val autostartOpened = prefs.getBoolean(KEY_AUTOSTART_OPENED, false)
 
         when {
-            !isIgnoringBatteryOptimizations() -> {
-                guideShownThisSession = true
-                startActivity(Intent(this, OemGuideActivity::class.java))
-            }
+            // Battery exemption missing — still the most likely reason for drops.
+            !isIgnoringBatteryOptimizations() -> showGuide()
+            // First run — introduce the two setup steps once.
             !oemGuideShown -> {
                 prefs.edit().putBoolean(KEY_OEM_GUIDE_SHOWN, true).apply()
-                guideShownThisSession = true
-                startActivity(Intent(this, OemGuideActivity::class.java))
+                showGuide()
             }
+            // Aggressive OEMs (MIUI/HyperOS, EMUI, ColorOS...): Autostart is
+            // mandatory to survive backgrounding, so keep surfacing the guide
+            // until the user opens the Autostart screen at least once.
+            OemSettingsHelper.isAutoStartCritical() && !autostartOpened -> showGuide()
         }
+    }
+
+    private fun showGuide() {
+        guideShownThisSession = true
+        startActivity(Intent(this, OemGuideActivity::class.java))
     }
 
     private fun hasAllPermissions(): Boolean {

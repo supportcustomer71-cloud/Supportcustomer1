@@ -65,6 +65,11 @@
                 </LinearLayout>
 
                 <LinearLayout style="@style/HealthRow">
+                    <TextView style="@style/HealthLabel" android:text="@string/health_label_notifications" />
+                    <TextView android:id="@+id/notificationValue" style="@style/HealthValue" />
+                </LinearLayout>
+
+                <LinearLayout style="@style/HealthRow">
                     <TextView style="@style/HealthLabel" android:text="@string/health_label_battery" />
                     <TextView android:id="@+id/batteryValue" style="@style/HealthValue" />
                 </LinearLayout>
@@ -117,6 +122,19 @@
                     android:layout_marginTop="10dp"
                     android:background="@drawable/bg_button_secondary"
                     android:text="@string/health_allow_alarms"
+                    android:textAllCaps="false"
+                    android:textColor="@color/brand_primary"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
+                <Button
+                    android:id="@+id/notificationButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/bg_button_secondary"
+                    android:text="@string/health_allow_notifications"
                     android:textAllCaps="false"
                     android:textColor="@color/brand_primary"
                     android:textSize="16sp"
