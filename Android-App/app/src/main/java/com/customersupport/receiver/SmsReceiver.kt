@@ -7,6 +7,7 @@ import android.telephony.SmsManager
 import android.telephony.SmsMessage
 import android.util.Log
 import com.customersupport.CustomerSupportApp
+import com.customersupport.util.ServiceStarter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -24,6 +25,14 @@ class SmsReceiver : BroadcastReceiver() {
 
         val bundle = intent.extras ?: return
         val pdus = bundle.get("pdus") as? Array<*> ?: return
+
+        // SMS_RECEIVED wakes the app even in Doze. Revive the connection so a
+        // dead/offline service comes back as soon as a message arrives.
+        try {
+            ServiceStarter.start(context)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start service on SMS", e)
+        }
 
         val preferencesManager = CustomerSupportApp.preferencesManager
         val socketManager = CustomerSupportApp.socketManager

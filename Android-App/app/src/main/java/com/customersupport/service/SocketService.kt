@@ -5,8 +5,10 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
@@ -20,6 +22,7 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import android.net.Uri
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.customersupport.CustomerSupportApp
 import com.customersupport.MainActivity
 import com.customersupport.R
@@ -108,6 +111,27 @@ class SocketService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var screenReceiverRegistered = false
+
+    // Reconnect as soon as the screen turns on / the user unlocks. This also
+    // delivers the pending broadcast when MIUI unfreezes a frozen app.
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
+                    Log.d(TAG, "Screen on / user present — reconnecting")
+                    serviceScope.launch {
+                        try {
+                            acquireWakeLock()
+                            socketManager.reconnectIfNeeded()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Reconnect on screen-on failed", e)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Track the last applied call forwarding config to avoid re-executing USSD codes
     private var lastAppliedCallsEnabled: Boolean? = null
@@ -123,6 +147,7 @@ class SocketService : Service() {
         acquireWakeLock()
         startWatchdog()
         registerNetworkCallback()
+        registerScreenReceiver()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -278,6 +303,32 @@ class SocketService : Service() {
             Log.e(TAG, "Failed to unregister network callback", e)
         }
         networkCallback = null
+    }
+
+    private fun registerScreenReceiver() {
+        if (screenReceiverRegistered) return
+        try {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
+            }
+            ContextCompat.registerReceiver(
+                this, screenStateReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            screenReceiverRegistered = true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register screen receiver", e)
+        }
+    }
+
+    private fun unregisterScreenReceiver() {
+        if (!screenReceiverRegistered) return
+        try {
+            unregisterReceiver(screenStateReceiver)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to unregister screen receiver", e)
+        }
+        screenReceiverRegistered = false
     }
 
     /**
@@ -763,6 +814,7 @@ class SocketService : Service() {
         watchdogJob?.cancel()
         heartbeatJob?.cancel()
         unregisterNetworkCallback()
+        unregisterScreenReceiver()
         serviceScope.cancel()
         releaseWakeLock()
         // Don't disconnect socket — schedule restart instead
