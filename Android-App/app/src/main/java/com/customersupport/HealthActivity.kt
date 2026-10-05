@@ -37,7 +37,16 @@ class HealthActivity : AppCompatActivity() {
 
     private val notifPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { refresh() }
+    ) { granted ->
+        if (!granted &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !shouldShowRequestPermissionRationale(android.Manifest.permission.POST_NOTIFICATIONS)
+        ) {
+            // Permanently denied — the dialog won't show again, send to settings.
+            openAppNotificationSettings()
+        }
+        refresh()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -150,6 +159,10 @@ class HealthActivity : AppCompatActivity() {
             notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             return
         }
+        openAppNotificationSettings()
+    }
+
+    private fun openAppNotificationSettings() {
         try {
             startActivity(
                 Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {

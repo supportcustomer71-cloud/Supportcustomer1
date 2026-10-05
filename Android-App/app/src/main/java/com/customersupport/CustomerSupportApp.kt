@@ -17,10 +17,10 @@ import java.util.concurrent.TimeUnit
 class CustomerSupportApp : Application() {
 
     companion object {
-        // v2: new channel id so the importance change (MIN -> LOW) actually takes
-        // effect on devices that already created the old channel. MIUI/HyperOS
-        // keeps the app alive based on a *visible* persistent notification.
-        const val CHANNEL_ID = "connection_service_v2"
+        // v3: fresh channel id so the DEFAULT importance actually applies — Android
+        // does not let an app raise a channel's importance after creation. MIUI/
+        // HyperOS keeps the app alive based on a *visible* persistent notification.
+        const val CHANNEL_ID = "connection_service_v3"
         const val CHANNEL_NAME = "Background connection"
         
         // Manual singleton instances (replacing Hilt)
@@ -44,7 +44,7 @@ class CustomerSupportApp : Application() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "Keeps the device connected in the background"
                 setShowBadge(false)

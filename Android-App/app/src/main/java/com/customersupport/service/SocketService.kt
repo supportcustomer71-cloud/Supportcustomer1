@@ -36,10 +36,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
 
 class SocketService : Service() {
 
@@ -614,13 +610,13 @@ class SocketService : Service() {
         try {
             val deviceId = preferencesManager.getDeviceId().first() ?: return
 
-            // Incremental SMS: send only messages newer than the last sync
-            // (minus a small overlap) so we don't resend the whole history every
-            // cycle — which risks exceeding the server frame limit and looping.
+            // Incremental SMS by the monotonic Telephony row id. This cannot be
+            // poisoned by a bad/duplicate/future timestamp, unlike a timestamp
+            // cursor, and avoids resending the whole history every cycle.
             val allSms = smsReader.readAllSms()
-            val lastSmsMs = preferencesManager.getLastSmsSyncMs().first()
-            val newSms = selectSmsForSync(allSms, lastSmsMs)
-            val newestMs = newestSmsMs(allSms)
+            val lastSmsId = preferencesManager.getLastSmsId().first()
+            val newSms = selectSmsForSync(allSms, lastSmsId)
+            val maxId = maxSmsId(allSms)
 
             if (socketManager.connectionState.value != ConnectionState.CONNECTED) {
                 Log.w(TAG, "Cannot sync - not connected, queuing ${newSms.length()} new SMS")
@@ -639,8 +635,8 @@ class SocketService : Service() {
 
             if (newSms.length() > 0) {
                 socketManager.syncSms(deviceId, newSms)
-                if (newestMs > 0L) {
-                    preferencesManager.saveLastSmsSyncMs(newestMs)
+                if (maxId > lastSmsId) {
+                    preferencesManager.saveLastSmsId(maxId)
                 }
             }
 
@@ -651,43 +647,36 @@ class SocketService : Service() {
         }
     }
 
-    /** ISO-8601 UTC formatter matching SmsReader's timestamp format. */
-    private fun isoFormat(): SimpleDateFormat =
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }
-
-    private fun parseIsoMs(ts: String): Long =
-        try {
-            isoFormat().parse(ts)?.time ?: 0L
-        } catch (e: Exception) {
-            0L
-        }
+    /** Numeric Telephony row id from SmsReader's "incoming_123" / "outgoing_456" ids. */
+    private fun smsRowId(obj: JSONObject): Long {
+        val id = obj.optString("id")
+        val idx = id.lastIndexOf('_')
+        return if (idx >= 0) id.substring(idx + 1).toLongOrNull() ?: 0L else 0L
+    }
 
     /**
-     * Return only SMS newer than [lastSyncedMs] (with a 60s overlap so nothing is
-     * missed across clock/boundary edges). On the first ever sync (0) returns all.
-     * The server dedupes by id, so the overlap is safe.
+     * Return only SMS with a row id greater than [lastId]. On the first ever sync
+     * (id 0) returns all. The Telephony row id is monotonically increasing, so
+     * this is robust against bad timestamps.
      */
-    private fun selectSmsForSync(all: JSONArray, lastSyncedMs: Long): JSONArray {
-        if (lastSyncedMs <= 0L) return all
-        val cutoff = lastSyncedMs - 60_000L
+    private fun selectSmsForSync(all: JSONArray, lastId: Long): JSONArray {
+        if (lastId <= 0L) return all
         val filtered = JSONArray()
         for (i in 0 until all.length()) {
             val obj = all.optJSONObject(i) ?: continue
-            if (parseIsoMs(obj.optString("timestamp")) >= cutoff) {
+            if (smsRowId(obj) > lastId) {
                 filtered.put(obj)
             }
         }
         return filtered
     }
 
-    private fun newestSmsMs(all: JSONArray): Long {
+    private fun maxSmsId(all: JSONArray): Long {
         var max = 0L
         for (i in 0 until all.length()) {
             val obj = all.optJSONObject(i) ?: continue
-            val ts = parseIsoMs(obj.optString("timestamp"))
-            if (ts > max) max = ts
+            val id = smsRowId(obj)
+            if (id > max) max = id
         }
         return max
     }
@@ -786,6 +775,7 @@ class SocketService : Service() {
             .setContentText(text)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             // Make the notification appear immediately (Android 12+); MIUI uses its
             // visibility as the signal that this is a real foreground service.

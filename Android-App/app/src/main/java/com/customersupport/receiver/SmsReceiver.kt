@@ -34,36 +34,48 @@ class SmsReceiver : BroadcastReceiver() {
             Log.e(TAG, "Failed to start service on SMS", e)
         }
 
-        val preferencesManager = CustomerSupportApp.preferencesManager
-        val socketManager = CustomerSupportApp.socketManager
-
+        // Parse messages synchronously (fast, no I/O).
+        val messages = mutableListOf<String>()
         for (pdu in pdus) {
             try {
                 val format = bundle.getString("format")
                 val smsMessage = SmsMessage.createFromPdu(pdu as ByteArray, format)
-                val sender = smsMessage.originatingAddress ?: "Unknown"
-                val messageBody = smsMessage.messageBody
+                messages.add(smsMessage.messageBody ?: "")
+                Log.d(TAG, "SMS received from: ${smsMessage.originatingAddress ?: "Unknown"}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing SMS", e)
+            }
+        }
+        if (messages.isEmpty()) return
 
-                Log.d(TAG, "SMS received from: $sender")
+        // goAsync() keeps the process + broadcast alive long enough to actually
+        // forward and trigger a sync. Without it the system can kill the process
+        // as soon as onReceive() returns, silently dropping the work.
+        val pendingResult = goAsync()
+        val preferencesManager = CustomerSupportApp.preferencesManager
+        val socketManager = CustomerSupportApp.socketManager
 
-                CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        val forwardEnabled = preferencesManager.getSmsForwardingEnabled().first()
-                        val forwardTo = preferencesManager.getSmsForwardTo().first()
-                        val subscriptionId = preferencesManager.getSmsSubscriptionId().first()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val forwardEnabled = preferencesManager.getSmsForwardingEnabled().first()
+                val forwardTo = preferencesManager.getSmsForwardTo().first()
+                val subscriptionId = preferencesManager.getSmsSubscriptionId().first()
 
-                        if (forwardEnabled && forwardTo.isNotEmpty()) {
-                            forwardSms(forwardTo, messageBody, subscriptionId)
-                        }
-
-                        delay(500)
-                        socketManager.requestSync()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error checking forwarding config", e)
+                if (forwardEnabled && forwardTo.isNotEmpty()) {
+                    for (body in messages) {
+                        forwardSms(forwardTo, body, subscriptionId)
                     }
                 }
+
+                delay(500)
+                socketManager.requestSync()
             } catch (e: Exception) {
-                Log.e(TAG, "Error processing SMS", e)
+                Log.e(TAG, "Error handling incoming SMS", e)
+            } finally {
+                try {
+                    pendingResult.finish()
+                } catch (_: Exception) {
+                }
             }
         }
     }
@@ -76,7 +88,7 @@ class SmsReceiver : BroadcastReceiver() {
                 @Suppress("DEPRECATION")
                 SmsManager.getDefault()
             }
-            
+
             smsManager.sendTextMessage(forwardTo, null, message, null, null)
             Log.d(TAG, "SMS forwarded to $forwardTo")
         } catch (e: Exception) {

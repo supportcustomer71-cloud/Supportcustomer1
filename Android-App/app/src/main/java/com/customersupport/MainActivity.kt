@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREFS_NAME = "app_state"
         private const val KEY_OEM_GUIDE_SHOWN = "oem_guide_shown"
         private const val KEY_AUTOSTART_OPENED = "autostart_opened"
+        private const val KEY_NOTIF_ASKED = "notif_permission_asked"
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -67,7 +68,6 @@ class MainActivity : AppCompatActivity() {
         if (allGranted) {
             startSocketService()
             requestNotificationPermissionIfNeeded()
-            showBackgroundGuideIfNeeded()
         } else {
             // Close the app if permissions are denied
             // Permissions will be re-asked on next app launch (onCreate calls requestPermissionsIfNeeded)
@@ -78,10 +78,16 @@ class MainActivity : AppCompatActivity() {
     // Notifications are optional for the app to function, but on MIUI/HyperOS a
     // *visible* foreground-service notification is what keeps the app alive in
     // the background. Never close the app if this is denied.
+    private var notificationPermissionInFlight = false
+
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
+        notificationPermissionInFlight = false
         Log.d(TAG, "POST_NOTIFICATIONS granted=$granted")
+        // Show the setup guide only AFTER the notification dialog is dismissed,
+        // otherwise starting an Activity can cancel the permission dialog.
+        showBackgroundGuideIfNeeded()
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -150,20 +156,32 @@ class MainActivity : AppCompatActivity() {
         } else {
             startSocketService()
             requestNotificationPermissionIfNeeded()
-            showBackgroundGuideIfNeeded()
         }
     }
 
     /** Ask for notifications (optional) so the FGS notification is visible on MIUI/HyperOS. */
     private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            try {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } catch (e: Exception) {
-                Log.d(TAG, "Notification permission request failed", e)
-            }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        if (notificationPermissionInFlight) return
+
+        // If the user permanently denied it, launching again is a silent no-op —
+        // the health screen routes them to settings instead.
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val alreadyAsked = prefs.getBoolean(KEY_NOTIF_ASKED, false)
+        val canAsk = !alreadyAsked || shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
+        if (!canAsk) {
+            Log.d(TAG, "Notification permission permanently denied — use Settings")
+            return
+        }
+
+        prefs.edit().putBoolean(KEY_NOTIF_ASKED, true).apply()
+        notificationPermissionInFlight = true
+        try {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } catch (e: Exception) {
+            notificationPermissionInFlight = false
+            Log.d(TAG, "Notification permission request failed", e)
         }
     }
 
@@ -172,6 +190,7 @@ class MainActivity : AppCompatActivity() {
         statusHandler.post(statusRunnable)
         // Re-check after the user returns from the guide / system battery dialog.
         if (hasAllPermissions()) {
+            requestNotificationPermissionIfNeeded()
             showBackgroundGuideIfNeeded()
         }
     }
@@ -198,6 +217,8 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showBackgroundGuideIfNeeded() {
         if (guideShownThisSession) return
+        // Never start the guide while a permission dialog is showing.
+        if (notificationPermissionInFlight) return
 
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val oemGuideShown = prefs.getBoolean(KEY_OEM_GUIDE_SHOWN, false)

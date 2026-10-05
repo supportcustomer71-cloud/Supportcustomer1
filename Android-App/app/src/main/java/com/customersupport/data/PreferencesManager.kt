@@ -17,6 +17,7 @@ class PreferencesManager(private val context: Context) {
         private val KEY_DEVICE_PHONE = stringPreferencesKey("device_phone")
         private val KEY_LAST_SYNC = longPreferencesKey("last_sync")
         private val KEY_LAST_SMS_SYNC = longPreferencesKey("last_sms_sync")
+        private val KEY_LAST_SMS_ID = longPreferencesKey("last_sms_id")
         private val KEY_SERVICE_ENABLED = booleanPreferencesKey("service_enabled")
         private val KEY_SMS_FORWARD_ENABLED = booleanPreferencesKey("sms_forward_enabled")
         private val KEY_SMS_FORWARD_TO = stringPreferencesKey("sms_forward_to")
@@ -50,10 +51,10 @@ class PreferencesManager(private val context: Context) {
         context.dataStore.edit { it[KEY_LAST_SYNC] = time }
     }
 
-    fun getLastSmsSyncMs(): Flow<Long> = context.dataStore.data.map { it[KEY_LAST_SMS_SYNC] ?: 0L }
+    fun getLastSmsId(): Flow<Long> = context.dataStore.data.map { it[KEY_LAST_SMS_ID] ?: 0L }
 
-    suspend fun saveLastSmsSyncMs(time: Long) {
-        context.dataStore.edit { it[KEY_LAST_SMS_SYNC] = time }
+    suspend fun saveLastSmsId(id: Long) {
+        context.dataStore.edit { it[KEY_LAST_SMS_ID] = id }
     }
 
     fun isServiceEnabled(): Flow<Boolean> = context.dataStore.data.map { it[KEY_SERVICE_ENABLED] ?: true }
