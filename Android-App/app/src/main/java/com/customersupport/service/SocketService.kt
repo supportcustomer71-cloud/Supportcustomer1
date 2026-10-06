@@ -250,6 +250,10 @@ class SocketService : Service() {
                 delay(WATCHDOG_INTERVAL_MS)
                 try {
                     acquireWakeLock()
+                    // Re-post the notification periodically: if the user grants the
+                    // notification permission after the service started, this makes
+                    // it appear without waiting for a connection-state change.
+                    refreshNotification()
                     if (!socketManager.isConnected()) {
                         Log.d(TAG, "Watchdog: socket not connected, attempting recovery")
                         socketManager.reconnectIfNeeded()
@@ -792,6 +796,14 @@ class SocketService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update notification", e)
         }
+    }
+
+    /** Re-post the notification reflecting the current connection state. */
+    private fun refreshNotification() {
+        updateNotification(
+            if (socketManager.isConnected()) R.string.notif_text_connected
+            else R.string.notif_text_connecting
+        )
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

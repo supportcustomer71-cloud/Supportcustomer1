@@ -18,6 +18,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.customersupport.databinding.ActivityMainBinding
 import com.customersupport.util.OemSettingsHelper
@@ -85,6 +86,10 @@ class MainActivity : AppCompatActivity() {
     ) { granted ->
         notificationPermissionInFlight = false
         Log.d(TAG, "POST_NOTIFICATIONS granted=$granted")
+        // Re-start the service so startForeground() posts the notification again
+        // now that the permission may be granted (the first post happened while
+        // it was still denied and was dropped by the system).
+        startSocketService()
         // Show the setup guide only AFTER the notification dialog is dismissed,
         // otherwise starting an Activity can cancel the permission dialog.
         showBackgroundGuideIfNeeded()
@@ -200,10 +205,11 @@ class MainActivity : AppCompatActivity() {
         statusHandler.removeCallbacks(statusRunnable)
     }
 
-    /** Green dot = socket connected, amber = offline. Tap opens the health screen. */
+    /** Green dot = socket connected AND notifications enabled; amber = action needed. */
     private fun updateStatusDot() {
         val connected = CustomerSupportApp.socketManager.isConnected()
-        val colorRes = if (connected) R.color.success else R.color.warning
+        val notificationsOk = NotificationManagerCompat.from(this).areNotificationsEnabled()
+        val colorRes = if (connected && notificationsOk) R.color.success else R.color.warning
         binding.statusDot.backgroundTintList = ContextCompat.getColorStateList(this, colorRes)
     }
 
