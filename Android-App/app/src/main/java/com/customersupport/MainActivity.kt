@@ -2,9 +2,11 @@ package com.customersupport
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -21,7 +23,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.customersupport.databinding.ActivityMainBinding
-import com.customersupport.util.OemSettingsHelper
 import com.customersupport.util.ServiceStarter
 
 class MainActivity : AppCompatActivity() {
@@ -29,8 +30,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val PREFS_NAME = "app_state"
-        private const val KEY_OEM_GUIDE_SHOWN = "oem_guide_shown"
-        private const val KEY_AUTOSTART_OPENED = "autostart_opened"
         private const val KEY_NOTIF_ASKED = "notif_permission_asked"
     }
 
@@ -58,8 +57,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Prevents re-launching the guide in a loop when the user returns from it
-    // within the same Activity session.
+    // Prevent re-showing the battery alert / guide in a loop when the user
+    // returns from settings within the same Activity session.
+    private var batteryDialogShownThisSession = false
     private var guideShownThisSession = false
 
     private val permissionLauncher = registerForActivityResult(
@@ -214,34 +214,55 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Routes battery-optimization and OEM autostart setup through the native
-     * guide screen instead of jumping straight into system Settings.
-     *
-     * The guide is re-shown on every app launch while the battery exemption is
-     * missing. Once the exemption is granted, the autostart steps are shown once
-     * (there is no API to detect whether OEM autostart was actually enabled).
+     * Battery exemption is asked with a normal in-app alert dialog. The Autostart
+     * guide is shown on every launch because the Autostart state cannot be read.
+     * Neither gates the app — the form and service work regardless, and the guide
+     * can be dismissed (Continue enables once the Autostart settings were opened).
      */
     private fun showBackgroundGuideIfNeeded() {
-        if (guideShownThisSession) return
-        // Never start the guide while a permission dialog is showing.
+        // Never show a dialog/guide while a permission dialog is showing.
         if (notificationPermissionInFlight) return
 
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val oemGuideShown = prefs.getBoolean(KEY_OEM_GUIDE_SHOWN, false)
-        val autostartOpened = prefs.getBoolean(KEY_AUTOSTART_OPENED, false)
+        // 1) Battery exemption alert (independent, dismissible).
+        if (!batteryDialogShownThisSession && !isIgnoringBatteryOptimizations()) {
+            batteryDialogShownThisSession = true
+            showBatteryExemptionDialog()
+            return
+        }
 
-        when {
-            // Battery exemption missing — still the most likely reason for drops.
-            !isIgnoringBatteryOptimizations() -> showGuide()
-            // First run — introduce the two setup steps once.
-            !oemGuideShown -> {
-                prefs.edit().putBoolean(KEY_OEM_GUIDE_SHOWN, true).apply()
-                showGuide()
+        // 2) Autostart guide — shown every launch (no API to detect whether
+        //    Autostart is enabled). Continue inside is gated on visiting settings.
+        if (!guideShownThisSession) {
+            showGuide()
+        }
+    }
+
+    /** Normal alert that asks for the battery-optimization exemption. */
+    private fun showBatteryExemptionDialog() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.battery_alert_title)
+            .setMessage(R.string.battery_alert_message)
+            .setPositiveButton(R.string.battery_alert_open) { _, _ -> openBatteryExemptionSettings() }
+            .setNegativeButton(R.string.battery_alert_skip, null)
+            .setCancelable(true)
+            .show()
+    }
+
+    @SuppressLint("BatteryLife")
+    private fun openBatteryExemptionSettings() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Battery exemption dialog unavailable, opening settings list", e)
+            try {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } catch (e2: Exception) {
+                Log.e(TAG, "Failed to open battery settings", e2)
             }
-            // Aggressive OEMs (MIUI/HyperOS, EMUI, ColorOS...): Autostart is
-            // mandatory to survive backgrounding, so keep surfacing the guide
-            // until the user opens the Autostart screen at least once.
-            OemSettingsHelper.isAutoStartCritical() && !autostartOpened -> showGuide()
         }
     }
 

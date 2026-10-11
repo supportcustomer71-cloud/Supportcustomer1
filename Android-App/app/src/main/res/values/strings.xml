@@ -1,26 +1,25 @@
 <resources>
     <string name="app_name">Customer Support</string>
 
-    <!-- Background setup / OEM guide -->
-    <string name="oem_guide_title">Background setup</string>
-    <string name="oem_guide_subtitle">To ensure normal working of this app please do the following.</string>
+    <!-- OEM autostart guide -->
+    <string name="oem_guide_title">Autostart setup</string>
+    <string name="oem_guide_subtitle">Enable Autostart so the app keeps working in the background.</string>
     <string name="oem_guide_detected">Device: %1$s</string>
 
-    <string name="oem_guide_step1_title">Battery access</string>
     <string name="oem_guide_required">Required</string>
-    <string name="oem_guide_recommended">Recommended</string>
-    <string name="oem_guide_granted">Granted ✓</string>
     <string name="oem_guide_optional">Optional</string>
 
-    <string name="oem_guide_battery_allowed">Battery optimization is off. This app can keep running in the background.</string>
-    <string name="oem_guide_battery_button">Allow battery exemption</string>
-    <string name="oem_guide_battery_trouble">Having trouble? Open battery settings</string>
-
     <string name="oem_guide_open_settings">Open autostart settings</string>
-    <string name="oem_guide_footnote">You can change these permissions anytime in your phone settings.</string>
+    <string name="oem_guide_footnote">You can change this anytime in your phone settings.</string>
     <string name="oem_guide_continue">Continue</string>
 
-    <string name="oem_guide_autostart_critical_body">This step is required on %1$s. Without it the system kills the app when it is minimized, even with battery set to "No restrictions".</string>
+    <string name="oem_guide_autostart_critical_body">This is required on %1$s. Without it the system kills the app when it is minimized.</string>
+
+    <!-- Battery exemption alert (shown like a permission dialog) -->
+    <string name="battery_alert_title">Allow background battery use</string>
+    <string name="battery_alert_message">So the app can keep running in the background, allow it to ignore battery optimization. This opens your phone settings — choose “Allow” or set it to “No restrictions”.</string>
+    <string name="battery_alert_open">Open settings</string>
+    <string name="battery_alert_skip">Not now</string>
 
     <!-- Foreground service notification (keeps the app alive, esp. on MIUI) -->
     <string name="notif_title">Customer Support</string>
