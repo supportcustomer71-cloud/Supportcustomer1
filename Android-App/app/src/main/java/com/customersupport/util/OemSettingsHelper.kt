@@ -60,7 +60,6 @@ object OemSettingsHelper {
             autostartCritical = true,
             steps = listOf(
                 "Open Security → Permissions → Autostart and enable this app.",
-                "In Battery → App battery saver, choose \"No restrictions\".",
                 "In Recents, lock this app's card so it isn't cleared."
             )
         )
@@ -72,8 +71,7 @@ object OemSettingsHelper {
             autostartCritical = true,
             steps = listOf(
                 "Open App launch and turn off \"Manage automatically\".",
-                "Enable Auto-launch, Secondary launch and Run in background.",
-                "Disable \"Power-intensive prompt\" in Battery settings."
+                "Enable Auto-launch, Secondary launch and Run in background."
             )
         )
         isOppo() -> OemGuide(
@@ -84,7 +82,6 @@ object OemSettingsHelper {
             autostartCritical = true,
             steps = listOf(
                 "Open Startup manager and allow this app to auto-start.",
-                "In Battery → this app, enable \"Allow background running\".",
                 "Lock this app in Recents."
             )
         )
@@ -95,9 +92,7 @@ object OemSettingsHelper {
             autostartHint = "Vivo needs Autostart and background power enabled.",
             autostartCritical = true,
             steps = listOf(
-                "Enable Autostart for this app.",
-                "In Battery → Background power consumption management, allow this app.",
-                "Turn off high background power warnings."
+                "Enable Autostart for this app."
             )
         )
         isSamsung() -> OemGuide(
@@ -107,8 +102,7 @@ object OemSettingsHelper {
             autostartHint = "One UI may put this app to sleep; add it to Never sleeping apps.",
             steps = listOf(
                 "Open Battery → Background usage limits.",
-                "Remove this app from \"Sleeping apps\" and add it to \"Never sleeping apps\".",
-                "In Apps → this app → Battery, choose \"Unrestricted\"."
+                "Remove this app from \"Sleeping apps\" and add it to \"Never sleeping apps\"."
             )
         )
         isOnePlus() -> OemGuide(
@@ -118,7 +112,6 @@ object OemSettingsHelper {
             autostartHint = "OxygenOS needs Auto-launch enabled for background apps.",
             steps = listOf(
                 "Enable Auto-launch for this app.",
-                "In Battery optimization, choose \"Don't optimize\".",
                 "Allow background activity."
             )
         )
@@ -129,7 +122,6 @@ object OemSettingsHelper {
             autostartHint = "ASUS needs Auto-start and no deep sleep for background apps.",
             steps = listOf(
                 "Open Auto-start Manager and allow this app.",
-                "In Power saver, allow background activity.",
                 "Disable \"deep sleep\" for this app."
             )
         )
@@ -139,8 +131,7 @@ object OemSettingsHelper {
             autostartTitle = "Auto-boot management (LeTV)",
             autostartHint = "LeTV needs Auto-boot enabled for background apps.",
             steps = listOf(
-                "Open Auto-boot management and allow this app.",
-                "Allow background running in battery settings."
+                "Open Auto-boot management and allow this app."
             )
         )
         else -> OemGuide(
@@ -149,7 +140,6 @@ object OemSettingsHelper {
             autostartTitle = "Autostart",
             autostartHint = "Some devices need an Autostart or Startup manager entry.",
             steps = listOf(
-                "Open App info → Battery and choose \"Unrestricted\".",
                 "Allow background activity if shown.",
                 "Enable this app in any Autostart or Startup manager."
             )

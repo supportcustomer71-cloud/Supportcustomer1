@@ -243,7 +243,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.battery_alert_title)
             .setMessage(R.string.battery_alert_message)
             .setPositiveButton(R.string.battery_alert_open) { _, _ -> openBatteryExemptionSettings() }
-            .setNegativeButton(R.string.battery_alert_skip, null)
+            // Cancelable via back / tap-outside so it never blocks using the app.
             .setCancelable(true)
             .show()
     }

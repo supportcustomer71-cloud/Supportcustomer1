@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Background setup — UI preview</title>
+<title>Autostart guide &amp; battery alert — UI preview</title>
 <style>
   :root {
     --bg_app: #F3F4F6;
@@ -35,7 +35,7 @@
 
   /* Controls panel */
   .controls {
-    width: 260px;
+    width: 280px;
     color: #e2e8f0;
     background: #1e293b;
     border: 1px solid #334155;
@@ -51,8 +51,12 @@
     width: 100%; padding: 9px 10px; border-radius: 9px;
     border: 1px solid #475569; background: #0f172a; color: #e2e8f0; font-size: 13px;
   }
-  .toggle { display: flex; align-items: center; gap: 9px; margin-top: 16px; cursor: pointer; font-size: 13px; color: #e2e8f0; }
-  .toggle input { width: 16px; height: 16px; accent-color: #2563EB; }
+  .viewswitch { display: flex; gap: 8px; margin-bottom: 16px; }
+  .viewswitch button {
+    flex: 1; padding: 9px 8px; border-radius: 9px; cursor: pointer; font-size: 12px; font-weight: 600;
+    border: 1px solid #475569; background: #0f172a; color: #cbd5e1;
+  }
+  .viewswitch button.active { background: var(--brand); border-color: var(--brand); color: #fff; }
   .hint { font-size: 11px; color: #64748b; margin-top: 14px; line-height: 1.5; }
 
   /* Phone frame */
@@ -105,7 +109,6 @@
     border-radius: 16px;
     padding: 20px;
   }
-  .card + .card { margin-top: 12px; }
 
   .card-head { display: flex; align-items: center; gap: 12px; }
   .badge {
@@ -115,18 +118,14 @@
     font-size: 15px; font-weight: 700;
   }
   .card-title { flex: 1 1 auto; font-size: 17px; font-weight: 700; color: var(--text_primary); }
-  .chip {
-    font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 20px; white-space: nowrap;
-  }
+  .chip { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
   .chip.required { background: var(--warning_soft); color: var(--warning); }
-  .chip.granted { background: var(--success_soft); color: var(--success); }
   .chip.optional { background: var(--brand_soft); color: var(--brand); }
 
-  .status-row { display: flex; gap: 8px; margin-top: 14px; align-items: flex-start; }
-  .status-row svg { width: 20px; height: 20px; flex: 0 0 auto; margin-top: 1px; }
-  .status-text { font-size: 14px; line-height: 1.5; }
-  .status-text.required { color: var(--warning); }
-  .status-text.granted { color: var(--success); }
+  .body-text { margin: 12px 0 0; font-size: 14px; line-height: 1.5; color: var(--text_secondary); }
+  .steps { margin: 10px 0 0; font-size: 15px; line-height: 1.7; color: var(--text_primary); }
+  .steps div + div { margin-top: 10px; }
+  .footnote { margin: 16px 4px 0; font-size: 13px; line-height: 1.5; color: var(--text_secondary); }
 
   .btn {
     width: 100%; height: 52px; border-radius: 12px; border: none;
@@ -137,86 +136,118 @@
   .btn.primary:disabled { background: var(--disabled); cursor: not-allowed; }
   .btn.secondary { background: var(--surface); color: var(--brand); border: 1.5px solid var(--brand); }
 
-  .link { display: inline-block; margin-top: 12px; padding: 4px 0; font-size: 13px; color: var(--brand); text-decoration: none; }
-
-  .step2-body { margin: 12px 0 0; font-size: 14px; line-height: 1.5; color: var(--text_secondary); }
-  .steps { margin: 10px 0 0; font-size: 15px; line-height: 1.7; color: var(--text_primary); }
-  .steps div + div { margin-top: 10px; }
-
-  .footnote { margin: 16px 4px 0; font-size: 13px; line-height: 1.5; color: var(--text_secondary); }
-
   footer {
     flex: 0 0 auto; background: var(--surface); padding: 16px;
     box-shadow: 0 -8px 18px rgba(15,23,42,.08);
   }
   footer .btn { margin-top: 0; }
 
-  .svg-hidden { display: none; }
+  .note { margin: 10px 4px 0; font-size: 12px; line-height: 1.5; color: var(--text_secondary); }
+
+  /* Battery alert view */
+  .app-under {
+    flex: 1 1 auto; position: relative; background: #FFFFFF;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .form-mock { width: 70%; opacity: .25; }
+  .form-mock .bar { height: 14px; border-radius: 7px; background: #94a3b8; margin-bottom: 14px; }
+  .form-mock .bar.short { width: 55%; }
+  .scrim {
+    position: absolute; inset: 0; background: rgba(15,23,42,.45);
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .dialog {
+    width: 100%; background: var(--surface); border-radius: 24px; padding: 22px;
+    box-shadow: 0 20px 50px rgba(0,0,0,.45);
+  }
+  .dialog h3 { margin: 0 0 10px; font-size: 19px; color: var(--text_primary); }
+  .dialog p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text_secondary); }
+  .dialog-actions {
+    display: flex; flex-direction: column; align-items: stretch; gap: 2px; margin-top: 18px;
+  }
+  .dialog-actions button {
+    background: none; border: none; font-family: inherit; font-size: 15px; font-weight: 700;
+    color: var(--brand); padding: 12px 6px; cursor: pointer; text-align: right;
+  }
+  .dialog-actions button.muted { color: var(--text_secondary); font-weight: 500; }
+
+  .hidden { display: none !important; }
 </style>
 </head>
 <body>
 
 <div class="controls">
   <h1>Background setup — preview</h1>
-  <p>Mirror of the native Android screen. Switch OEM and exemption state to see every variant.</p>
+  <p>Mirror of the native screens. The battery exemption is a normal alert dialog; the guide is Autostart-only.</p>
+
+  <div class="viewswitch">
+    <button id="tabBattery" class="active">Battery alert</button>
+    <button id="tabGuide">Autostart guide</button>
+  </div>
+
   <label for="oem">Device / OEM</label>
   <select id="oem"></select>
-  <label class="toggle"><input type="checkbox" id="granted" /> Battery exemption granted</label>
-  <div class="hint">On a real device the OEM is detected from <code>Build.MANUFACTURER</code>. Content matches <code>OemSettingsHelper.kt</code>.</div>
+
+  <div class="hint">
+    On a real device the OEM is detected from <code>Build.MANUFACTURER</code>. Content matches
+    <code>OemSettingsHelper.kt</code>. In the guide, <b>Continue</b> stays disabled until you tap
+    “Open autostart settings”.
+  </div>
 </div>
 
 <div class="phone">
   <div class="screen">
     <div class="statusbar"><span>9:41</span><span class="dots">•••</span></div>
 
-    <header>
-      <svg class="shield" viewBox="0 0 24 24" fill="#2563EB" aria-hidden="true">
-        <path d="M12,1L3,5v6c0,5.55 3.84,10.74 9,12 5.16,-1.26 9,-6.45 9,-12V5l-9,-4zM12,11.99h7c-0.53,4.12 -3.28,7.79 -7,8.94V12H5V6.3l7,-3.11v8.8z"/>
-      </svg>
-      <h2>Background setup</h2>
-      <p class="sub">To ensure normal working of this app please do the following.</p>
-      <span class="device-chip" id="deviceChip">Device: Android</span>
-    </header>
-
-    <main>
-      <!-- Step 1 -->
-      <section class="card">
-        <div class="card-head">
-          <div class="badge">1</div>
-          <div class="card-title">Battery access</div>
-          <div class="chip required" id="chip1">Recommended</div>
+    <!-- Battery exemption alert -->
+    <div id="viewBattery" class="app-under">
+      <div class="form-mock">
+        <div class="bar"></div>
+        <div class="bar short"></div>
+        <div class="bar"></div>
+      </div>
+      <div class="scrim">
+        <div class="dialog">
+          <h3>Allow background battery use</h3>
+          <p>So the app can keep running in the background, allow it to ignore battery optimization. This opens your phone settings — choose “Allow” or set it to “No restrictions”.</p>
+          <div class="dialog-actions">
+            <button>Open settings</button>
+          </div>
         </div>
-        <div class="status-row">
-          <svg id="iconError" viewBox="0 0 24 24" fill="#B45309" aria-hidden="true">
-            <path d="M11,15h2v2h-2zM11,7h2v6h-2zM11.99,2C6.47,2 2,6.48 2,12s4.47,10 9.99,10C17.52,22 22,17.52 22,12S17.52,2 11.99,2zM12,20c-4.42,0 -8,-3.58 -8,-8s3.58,-8 8,-8 8,3.58 8,8 -3.58,8 -8,8z"/>
-          </svg>
-          <svg id="iconCheck" class="svg-hidden" viewBox="0 0 24 24" fill="#16A34A" aria-hidden="true">
-            <path d="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM10,17l-5,-5 1.41,-1.41L10,14.17l7.59,-7.59L19,8l-9,9z"/>
-          </svg>
-          <div class="status-text required" id="status1">Set this app's battery usage to "Unrestricted" or "Don't optimize".</div>
-        </div>
-        <button class="btn primary" id="grantBtn">Allow battery exemption</button>
-        <a class="link" id="troubleLink" href="#" onclick="return false">Having trouble? Open battery settings</a>
-      </section>
+      </div>
+    </div>
 
-      <!-- Step 2 -->
-      <section class="card">
-        <div class="card-head">
-          <div class="badge">2</div>
-          <div class="card-title" id="step2Title">Autostart</div>
-          <div class="chip optional">Optional</div>
-        </div>
-        <p class="step2-body" id="step2Body">Some devices need an Autostart or Startup manager entry.</p>
-        <div class="steps" id="steps"></div>
-        <button class="btn secondary" id="autostartBtn">Open autostart settings</button>
-      </section>
+    <!-- Autostart guide -->
+    <div id="viewGuide" class="hidden" style="flex:1 1 auto; display:flex; flex-direction:column; min-height:0;">
+      <header>
+        <svg class="shield" viewBox="0 0 24 24" fill="#2563EB" aria-hidden="true">
+          <path d="M12,1L3,5v6c0,5.55 3.84,10.74 9,12 5.16,-1.26 9,-6.45 9,-12V5l-9,-4zM12,11.99h7c-0.53,4.12 -3.28,7.79 -7,8.94V12H5V6.3l7,-3.11v8.8z"/>
+        </svg>
+        <h2>Autostart setup</h2>
+        <p class="sub">Enable Autostart so the app keeps working in the background.</p>
+        <span class="device-chip" id="deviceChip">Device: Android</span>
+      </header>
 
-      <p class="footnote">You can change these permissions anytime in your phone settings.</p>
-    </main>
+      <main>
+        <section class="card">
+          <div class="card-head">
+            <div class="badge">1</div>
+            <div class="card-title" id="autostartTitle">Autostart</div>
+            <div class="chip optional" id="autostartChip">Optional</div>
+          </div>
+          <p class="body-text" id="autostartBody">Some devices need an Autostart or Startup manager entry.</p>
+          <div class="steps" id="steps"></div>
+          <button class="btn secondary" id="openSettingsBtn">Open autostart settings</button>
+        </section>
 
-    <footer>
-      <button class="btn primary" id="continueBtn" disabled>Grant battery access to continue</button>
-    </footer>
+        <p class="footnote">You can change this anytime in your phone settings.</p>
+        <p class="note" id="gateNote">Tip: Continue unlocks after you open the Autostart settings once.</p>
+      </main>
+
+      <footer>
+        <button class="btn primary" id="continueBtn" disabled>Continue</button>
+      </footer>
+    </div>
   </div>
 </div>
 
@@ -224,105 +255,93 @@
 const GUIDES = {
   xiaomi: {
     name: "Xiaomi / Redmi / POCO (MIUI)",
-    batteryHint: "On MIUI, set this app to \"No restrictions\" under Battery → App battery saver.",
+    critical: true,
     autostartTitle: "Autostart (MIUI Security)",
     autostartHint: "MIUI blocks background apps unless Autostart is enabled in the Security app.",
     steps: [
       "Open Security → Permissions → Autostart and enable this app.",
-      "In Battery → App battery saver, choose \"No restrictions\".",
       "In Recents, lock this app's card so it isn't cleared."
     ]
   },
   huawei: {
     name: "Huawei / Honor (EMUI)",
-    batteryHint: "On EMUI, turn off \"Manage automatically\" in Battery → App launch for this app.",
+    critical: true,
     autostartTitle: "App launch (EMUI)",
     autostartHint: "EMUI needs App launch and Run in background enabled for background apps.",
     steps: [
       "Open App launch and turn off \"Manage automatically\".",
-      "Enable Auto-launch, Secondary launch and Run in background.",
-      "Disable \"Power-intensive prompt\" in Battery settings."
+      "Enable Auto-launch, Secondary launch and Run in background."
     ]
   },
   oppo: {
     name: "OPPO / Realme (ColorOS)",
-    batteryHint: "On ColorOS, allow background running for this app in Battery settings.",
+    critical: true,
     autostartTitle: "Startup manager (ColorOS)",
     autostartHint: "ColorOS needs Auto-start and background running enabled.",
     steps: [
       "Open Startup manager and allow this app to auto-start.",
-      "In Battery → this app, enable \"Allow background running\".",
       "Lock this app in Recents."
     ]
   },
   vivo: {
     name: "Vivo / iQOO",
-    batteryHint: "On Vivo, allow background power consumption for this app.",
+    critical: true,
     autostartTitle: "Autostart (Vivo)",
     autostartHint: "Vivo needs Autostart and background power enabled.",
     steps: [
-      "Enable Autostart for this app.",
-      "In Battery → Background power consumption management, allow this app.",
-      "Turn off high background power warnings."
+      "Enable Autostart for this app."
     ]
   },
   samsung: {
     name: "Samsung (One UI)",
-    batteryHint: "On One UI, set this app's battery to \"Unrestricted\" and remove it from Sleeping apps.",
+    critical: false,
     autostartTitle: "Sleeping apps (One UI)",
     autostartHint: "One UI may put this app to sleep; add it to Never sleeping apps.",
     steps: [
       "Open Battery → Background usage limits.",
-      "Remove this app from \"Sleeping apps\" and add it to \"Never sleeping apps\".",
-      "In Apps → this app → Battery, choose \"Unrestricted\"."
+      "Remove this app from \"Sleeping apps\" and add it to \"Never sleeping apps\"."
     ]
   },
   oneplus: {
     name: "OnePlus (OxygenOS)",
-    batteryHint: "On OxygenOS, set battery optimization to \"Don't optimize\" for this app.",
+    critical: false,
     autostartTitle: "Auto-launch (OxygenOS)",
     autostartHint: "OxygenOS needs Auto-launch enabled for background apps.",
     steps: [
       "Enable Auto-launch for this app.",
-      "In Battery optimization, choose \"Don't optimize\".",
       "Allow background activity."
     ]
   },
   asus: {
     name: "ASUS",
-    batteryHint: "On ASUS, disable deep sleep and allow background activity.",
+    critical: false,
     autostartTitle: "Auto-start Manager (ASUS)",
     autostartHint: "ASUS needs Auto-start and no deep sleep for background apps.",
     steps: [
       "Open Auto-start Manager and allow this app.",
-      "In Power saver, allow background activity.",
       "Disable \"deep sleep\" for this app."
     ]
   },
   letv: {
     name: "LeEco / Letv",
-    batteryHint: "Allow this app to run in the background in battery settings.",
+    critical: false,
     autostartTitle: "Auto-boot management (LeTV)",
     autostartHint: "LeTV needs Auto-boot enabled for background apps.",
     steps: [
-      "Open Auto-boot management and allow this app.",
-      "Allow background running in battery settings."
+      "Open Auto-boot management and allow this app."
     ]
   },
   generic: {
     name: "Android",
-    batteryHint: "Set this app's battery usage to \"Unrestricted\" or \"Don't optimize\".",
+    critical: false,
     autostartTitle: "Autostart",
     autostartHint: "Some devices need an Autostart or Startup manager entry.",
     steps: [
-      "Open App info → Battery and choose \"Unrestricted\".",
       "Allow background activity if shown.",
       "Enable this app in any Autostart or Startup manager."
     ]
   }
 };
-
-const ALLOWED = "Battery optimization is off. This app can keep running in the background.";
 
 const oemSelect = document.getElementById('oem');
 Object.entries(GUIDES).forEach(([key, g]) => {
@@ -334,57 +353,67 @@ oemSelect.value = 'samsung';
 
 const els = {
   deviceChip: document.getElementById('deviceChip'),
-  chip1: document.getElementById('chip1'),
-  iconError: document.getElementById('iconError'),
-  iconCheck: document.getElementById('iconCheck'),
-  status1: document.getElementById('status1'),
-  grantBtn: document.getElementById('grantBtn'),
-  troubleLink: document.getElementById('troubleLink'),
-  step2Title: document.getElementById('step2Title'),
-  step2Body: document.getElementById('step2Body'),
+  autostartTitle: document.getElementById('autostartTitle'),
+  autostartChip: document.getElementById('autostartChip'),
+  autostartBody: document.getElementById('autostartBody'),
   steps: document.getElementById('steps'),
+  openSettingsBtn: document.getElementById('openSettingsBtn'),
   continueBtn: document.getElementById('continueBtn'),
+  gateNote: document.getElementById('gateNote'),
 };
+
+let settingsVisited = false;
 
 function render() {
   const g = GUIDES[oemSelect.value];
-  const granted = document.getElementById('granted').checked;
 
   els.deviceChip.textContent = 'Device: ' + g.name;
-  els.step2Title.textContent = g.autostartTitle;
-  els.step2Body.textContent = g.autostartHint;
+  els.autostartTitle.textContent = g.autostartTitle;
+  els.autostartBody.textContent = g.autostartHint;
   els.steps.innerHTML = g.steps
     .map((s, i) => `<div>${i + 1}.&nbsp;&nbsp;${s}</div>`)
     .join('');
 
-  if (granted) {
-    els.chip1.textContent = 'Granted ✓';
-    els.chip1.className = 'chip granted';
-    els.status1.textContent = ALLOWED;
-    els.status1.className = 'status-text granted';
-    els.iconError.classList.add('svg-hidden');
-    els.iconCheck.classList.remove('svg-hidden');
-    els.grantBtn.style.display = 'none';
-    els.troubleLink.style.display = 'none';
-    els.continueBtn.disabled = false;
-    els.continueBtn.textContent = 'Continue';
+  if (g.critical) {
+    els.autostartChip.textContent = 'Required';
+    els.autostartChip.className = 'chip required';
   } else {
-    els.chip1.textContent = 'Recommended';
-    els.chip1.className = 'chip required';
-    els.status1.textContent = g.batteryHint;
-    els.status1.className = 'status-text required';
-    els.iconError.classList.remove('svg-hidden');
-    els.iconCheck.classList.add('svg-hidden');
-    els.grantBtn.style.display = 'block';
-    els.troubleLink.style.display = 'inline-block';
-    els.continueBtn.disabled = false;
-    els.continueBtn.textContent = 'Continue';
+    els.autostartChip.textContent = 'Optional';
+    els.autostartChip.className = 'chip optional';
   }
+
+  els.continueBtn.disabled = !settingsVisited;
+  els.gateNote.textContent = settingsVisited
+    ? 'Settings opened — Continue is enabled.'
+    : 'Tip: Continue unlocks after you open the Autostart settings once.';
 }
 
+// Guide: tapping "Open autostart settings" only unlocks Continue (visit, not grant).
+els.openSettingsBtn.addEventListener('click', () => {
+  settingsVisited = true;
+  render();
+});
+
+// View switching
+const viewBattery = document.getElementById('viewBattery');
+const viewGuide = document.getElementById('viewGuide');
+const tabBattery = document.getElementById('tabBattery');
+const tabGuide = document.getElementById('tabGuide');
+
+function showView(which) {
+  const battery = which === 'battery';
+  viewBattery.classList.toggle('hidden', !battery);
+  viewGuide.classList.toggle('hidden', battery);
+  tabBattery.classList.toggle('active', battery);
+  tabGuide.classList.toggle('active', !battery);
+}
+
+tabBattery.addEventListener('click', () => showView('battery'));
+tabGuide.addEventListener('click', () => showView('guide'));
 oemSelect.addEventListener('change', render);
-document.getElementById('granted').addEventListener('change', render);
+
 render();
+showView('battery');
 </script>
 </body>
 </html>

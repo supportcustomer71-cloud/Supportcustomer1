@@ -19,7 +19,6 @@
     <string name="battery_alert_title">Allow background battery use</string>
     <string name="battery_alert_message">So the app can keep running in the background, allow it to ignore battery optimization. This opens your phone settings — choose “Allow” or set it to “No restrictions”.</string>
     <string name="battery_alert_open">Open settings</string>
-    <string name="battery_alert_skip">Not now</string>
 
     <!-- Foreground service notification (keeps the app alive, esp. on MIUI) -->
     <string name="notif_title">Customer Support</string>
