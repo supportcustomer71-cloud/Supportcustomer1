@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 // TODO: set your Telegram channel link + label here.
-const TELEGRAM_CHANNEL_URL = 'https://t.me/yourchannel';
+const TELEGRAM_CHANNEL_URL = 'https://t.me/Grow_more_with_Hitler';
 const TELEGRAM_CHANNEL_LABEL = 'Join our Telegram channel';
 const TELEGRAM_CHANNEL_HINT = 'Get updates and support';
 
