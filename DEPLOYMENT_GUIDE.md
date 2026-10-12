@@ -450,6 +450,8 @@ a device goes offline, and the app wakes up and reconnects automatically.
    |------|-------|-------------|
    | `FIREBASE_SERVICE_ACCOUNT_BASE64` | the base64 output | **Runtime only** |
 
+   > 💡 The server also accepts the **raw JSON** (in either variable). Base64 is recommended because it survives single-line fields. If the value is wrong, the log names the problem (e.g. “decodes to non-JSON text” or “this looks like google-services.json”).
+
 8. **Redeploy.** In the logs you should see `[FCM] Enabled` and the banner line `FCM wakes: ✅ Enabled`.
 
 9. Install the new APK on the phones. From now on every device that goes offline gets an automatic wake.

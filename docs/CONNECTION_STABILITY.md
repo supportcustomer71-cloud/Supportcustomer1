@@ -147,8 +147,9 @@ Where a wake is triggered (all paths that flip a device offline):
    FIREBASE_SERVICE_ACCOUNT_BASE64=<output>
    ```
    Redeploy. The server log/banner shows `FCM wakes: ✅ Enabled`.
-   (Raw JSON also works via `FIREBASE_SERVICE_ACCOUNT_JSON`, but base64 avoids
-   multiline env problems.)
+   (The server accepts the **raw JSON too** — either env var works with either
+   form; base64 is recommended for single-line fields. Invalid values are
+   rejected with a specific hint in the logs.)
 3. Optional: `FCM_WAKE_COOLDOWN_MINUTES` (default `3`) — per-device minimum gap
    between wake messages.
 

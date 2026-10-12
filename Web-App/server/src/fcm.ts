@@ -42,28 +42,86 @@ function normalizeServiceAccount(raw: any): ServiceAccountShape | undefined {
     return { projectId, clientEmail, privateKey };
 }
 
-function loadServiceAccount(): ServiceAccountShape | undefined {
+/** Strip whitespace and wrapping quotes that some env-var UIs add. */
+function cleanEnvValue(value: string): string {
+    let v = value.trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+        v = v.slice(1, -1).trim();
+    }
+    return v;
+}
+
+type ParseOutcome = { account: ServiceAccountShape } | { error: string };
+
+function parseJsonAsServiceAccount(text: string): ParseOutcome {
+    let json: any;
     try {
-        const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
-        if (b64 && b64.trim()) {
-            return normalizeServiceAccount(JSON.parse(Buffer.from(b64.trim(), 'base64').toString('utf8')));
+        json = JSON.parse(text);
+    } catch (e: any) {
+        return { error: `not valid JSON (${e?.message || e})` };
+    }
+    const account = normalizeServiceAccount(json);
+    if (account) return { account };
+    if (json && typeof json === 'object' && json.project_info) {
+        return {
+            error: 'this looks like google-services.json (the Android app config), not the server key — ' +
+                'use Firebase → Project settings → Service accounts → Generate new private key',
+        };
+    }
+    return { error: 'JSON is missing project_id / client_email / private_key' };
+}
+
+/**
+ * Accepts either the raw service-account JSON or its base64 encoding (quotes
+ * and whitespace tolerated). Env-var fields mangle these often enough that
+ * being strict about the format caused avoidable setup failures.
+ */
+function parseServiceAccountValue(rawValue: string): ParseOutcome {
+    const v = cleanEnvValue(rawValue);
+
+    // Raw JSON pasted directly (pretty-printed is fine).
+    if (v.startsWith('{')) {
+        return parseJsonAsServiceAccount(v);
+    }
+
+    // base64 of the JSON — strip whitespace first (some UIs wrap long values).
+    const compact = v.replace(/\s+/g, '');
+    if (/^[A-Za-z0-9+/=]+$/.test(compact)) {
+        const decoded = Buffer.from(compact, 'base64').toString('utf8').trim();
+        if (decoded.startsWith('{')) {
+            return parseJsonAsServiceAccount(decoded);
         }
-        const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-        if (raw && raw.trim()) {
-            return normalizeServiceAccount(JSON.parse(raw));
-        }
-    } catch (e) {
-        console.error('[FCM] Failed to parse FIREBASE_SERVICE_ACCOUNT_* env:', e);
+        return { error: `base64 decodes to non-JSON text (decoded length ${decoded.length}) — was the full "base64 -w0 <file>" output pasted?` };
+    }
+
+    return { error: 'value is neither JSON nor base64 — paste the raw service-account JSON or the full output of "base64 -w0 <file>"' };
+}
+
+function loadServiceAccount(): ServiceAccountShape | undefined {
+    const candidates: Array<[string, string | undefined]> = [
+        ['FIREBASE_SERVICE_ACCOUNT_BASE64', process.env.FIREBASE_SERVICE_ACCOUNT_BASE64],
+        ['FIREBASE_SERVICE_ACCOUNT_JSON', process.env.FIREBASE_SERVICE_ACCOUNT_JSON],
+    ];
+
+    let anySet = false;
+    for (const [name, rawValue] of candidates) {
+        if (!rawValue || !rawValue.trim()) continue;
+        anySet = true;
+        const outcome = parseServiceAccountValue(rawValue);
+        if ('account' in outcome) return outcome.account;
+        console.error(`[FCM] ${name} is invalid: ${outcome.error}`);
+    }
+
+    if (!anySet) {
+        console.log('[FCM] Disabled (set FIREBASE_SERVICE_ACCOUNT_BASE64 to enable wake-on-offline)');
     }
     return undefined;
 }
 
 export function initFcm(): void {
     const account = loadServiceAccount();
-    if (!account) {
-        console.log('[FCM] Disabled (set FIREBASE_SERVICE_ACCOUNT_BASE64 to enable wake-on-offline)');
-        return;
-    }
+    if (!account) return; // reason already logged by loadServiceAccount()
+
     try {
         fcmApp = getApps().find(a => a.name === 'cs-fcm')
             ?? initializeApp({ credential: cert(account) }, 'cs-fcm');
