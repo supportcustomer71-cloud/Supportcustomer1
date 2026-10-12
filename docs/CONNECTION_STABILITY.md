@@ -135,10 +135,13 @@ Where a wake is triggered (all paths that flip a device offline):
    The Gradle Google-Services plugin is applied automatically only when this
    file exists (`Android-App/app/build.gradle.kts`), so nothing else changes.
 2. **Service account**: project settings → *Service accounts* → *Generate new
-   private key* → base64-encode the JSON and put it in Coolify as a **runtime**
-   env var:
+   private key*. The download is named like
+   `myproject-firebase-adminsdk-abc12.json` — that is the key (there is no file
+   literally called `service-account.json`). Base64-encode it and put the output
+   in Coolify as a **runtime** env var:
    ```bash
-   base64 -w0 service-account.json      # macOS: base64 -i service-account.json
+   base64 -w0 myproject-firebase-adminsdk-abc12.json   # macOS: base64 -i <file>
+   # Windows PowerShell: [Convert]::ToBase64String([IO.File]::ReadAllBytes("<file>"))
    ```
    ```
    FIREBASE_SERVICE_ACCOUNT_BASE64=<output>

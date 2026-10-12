@@ -434,10 +434,14 @@ a device goes offline, and the app wakes up and reconnects automatically.
 ### B. Service account → Coolify
 
 5. Firebase console → ⚙️ **Project settings** → **Service accounts** → **Generate new private key** → save the JSON file.
-6. Convert it to one line:
+
+   > 💡 The downloaded file is named like `myproject-firebase-adminsdk-abc12.json`. That **is** the service-account key — there is no file literally named `service-account.json`.
+
+6. Convert it to one line, using your actual file name:
 
    ```bash
-   base64 -w0 service-account.json        # macOS: base64 -i service-account.json
+   base64 -w0 fcmp-xxxx-firebase-adminsdk-xxxx.json      # macOS: base64 -i <file>
+   # Windows PowerShell: [Convert]::ToBase64String([IO.File]::ReadAllBytes("<file>"))
    ```
 
 7. Coolify → your app → **Environment Variables** → add:
