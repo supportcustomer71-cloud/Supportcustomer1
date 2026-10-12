@@ -587,10 +587,15 @@ flowchart TD
 
 ### WebSocket stability (devices showing offline)
 
+> See also **[docs/CONNECTION_STABILITY.md](docs/CONNECTION_STABILITY.md)** — full root-cause list, implemented fixes (adaptive keepalive, transport fallback, phantom-online sweep) and the FCM path for guaranteed wake-ups.
+
 | Problem | Fix |
 |---------|-----|
 | Devices intermittently offline | Ensure the proxy (Coolify/Traefik) allows **WebSocket upgrade** on `/socket.io/` and its idle/read timeout is **≥ 120s** (must exceed the 15s ping interval). |
+| Device can never connect on some Wi‑Fi/proxy | The Android app and admin panel now start on **polling** and upgrade to WebSocket, so a network that blocks WebSockets still connects. |
+| Offline for a long time after app was swiped away | Keepalive alarm now re-arms every **60s while disconnected** and the phone-state receiver wakes the app on calls, so a killed process is revived within ~1 minute. |
 | All devices offline after a deploy | Expected briefly: devices re-register on reconnect. The app heartbeats every 30s and the server reconciles live sockets every 30s, so recovery is automatic. |
+| Device stuck showing 🟢 online while actually gone | Fixed: the 30s reconcile now also marks offline devices that have no live socket (skipping the 12s reconnect grace). |
 | Repeated Telegram `409 Conflict` | Two instances polling at once (e.g. a rollout overlap). Only one should poll; the bot now backs off and retries instead of disabling itself. |
 | Server crashed / restarted unexpectedly | Now guarded by global `unhandledRejection`/`uncaughtException` handlers so one Telegram API error can't take the socket server down. |
 

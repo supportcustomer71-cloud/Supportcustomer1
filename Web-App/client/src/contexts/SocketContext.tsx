@@ -20,7 +20,10 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         const backendUrl = import.meta.env.VITE_BACKEND_URL || window.location.origin;
         const resolvedUrl = backendUrl.replace(':5173', ':3001');
         const socketInstance = io(resolvedUrl, {
-            transports: ['websocket', 'polling'],
+            // Default transport order (polling, then upgrade to WebSocket):
+            // more reliable than WebSocket-only on restrictive networks. The
+            // client only ever *starts* on transports[0].
+            transports: ['polling', 'websocket'],
             withCredentials: true,
             extraHeaders: {
                 'ngrok-skip-browser-warning': 'true'

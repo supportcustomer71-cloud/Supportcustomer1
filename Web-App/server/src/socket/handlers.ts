@@ -34,9 +34,35 @@ function markDeviceOnline(io: Server, socket: Socket, deviceId: string): void {
 }
 
 /**
+ * Reverse sweep: a device can end up marked online while its bound socket is
+ * gone — e.g. the disconnect event was missed, or the socket re-registered
+ * under another device id. Runs after reconcilePresence() has refreshed every
+ * live socket, and skips devices with a pending offline grace timer so the
+ * normal quick-reconnect path is never interrupted.
+ */
+function sweepPhantomOnline(io: Server): boolean {
+    let changed = false;
+    for (const device of store.getAllDevices()) {
+        if (device.status !== 'online') continue;
+        if (pendingOffline.has(device.id)) continue;
+
+        const sid = device.socketId;
+        const liveSocket = sid ? io.sockets.sockets.get(sid) : undefined;
+        const boundToDevice = !!liveSocket && (liveSocket.data?.deviceId as string | undefined) === device.id;
+        if (boundToDevice) continue;
+
+        console.warn(`[Socket] Presence sweep: ${device.id} had no live socket — marking offline`);
+        store.setDeviceOffline(device.id, 'presence sweep');
+        changed = true;
+    }
+    return changed;
+}
+
+/**
  * Reconcile presence: any device that currently has a live socket is (re)marked
- * online. This never marks a device offline, so it is safe to run periodically
- * and directly fixes "connected but shown offline" staleness.
+ * online, and any device that claims online but has no live socket is marked
+ * offline. The first half never marks devices offline, so it is safe to run
+ * periodically and directly fixes "connected but shown offline" staleness.
  */
 function reconcilePresence(io: Server): void {
     let changed = false;
@@ -48,6 +74,9 @@ function reconcilePresence(io: Server): void {
                 changed = true;
             }
         }
+    }
+    if (sweepPhantomOnline(io)) {
+        changed = true;
     }
     if (changed) {
         io.to('admin').emit('devices:update', store.getAllDevices());
@@ -112,6 +141,10 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
                     phoneNumber,
                     socketId: socket.id,
                 });
+
+                // A re-register means the device beat (or is inside) the offline
+                // grace period — cancel the pending transition so it never flaps.
+                cancelPendingOffline(deviceId);
 
                 // Join device to its own room
                 socket.join(`device:${deviceId}`);

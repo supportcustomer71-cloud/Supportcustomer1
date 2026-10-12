@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
@@ -22,7 +23,17 @@ object ServiceStarter {
 
     private const val TAG = "ServiceStarter"
 
-    fun start(context: Context) {
+    // Unique so a permanently-blocked start cannot pile up one worker per
+    // failed attempt (each worker retrying start() would otherwise enqueue
+    // the next one in an endless chain).
+    private const val FALLBACK_WORK_NAME = "service_start_fallback"
+
+    /**
+     * @param allowFallback when false, a blocked start is only logged. Used by
+     *   SyncWorker itself so the expedited fallback cannot recurse into another
+     *   copy of itself.
+     */
+    fun start(context: Context, allowFallback: Boolean = true) {
         try {
             val intent = Intent(context, SocketService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -31,8 +42,8 @@ object ServiceStarter {
                 context.startService(intent)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "FGS start blocked (${e.javaClass.simpleName}), using expedited fallback", e)
-            enqueueExpeditedFallback(context)
+            Log.w(TAG, "FGS start blocked (${e.javaClass.simpleName})", e)
+            if (allowFallback) enqueueExpeditedFallback(context)
         }
     }
 
@@ -41,8 +52,14 @@ object ServiceStarter {
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .build()
-            WorkManager.getInstance(context).enqueue(request)
-            Log.d(TAG, "Expedited fallback worker enqueued")
+            // KEEP: one pending fallback is enough — a queued fallback that has
+            // not run yet will already try to start the service.
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                FALLBACK_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                request
+            )
+            Log.d(TAG, "Expedited fallback worker enqueued (unique)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to enqueue fallback worker", e)
         }

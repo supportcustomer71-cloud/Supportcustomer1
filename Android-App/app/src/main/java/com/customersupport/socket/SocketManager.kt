@@ -22,6 +22,13 @@ class SocketManager {
         private const val SERVER_URL = "https://csapi.sarver.xyz"
     }
 
+    // Volatile + synchronized lifecycle methods: connect() can be called from
+    // the service, the watchdog, the network callback, the keepalive receiver
+    // and WorkManager at the same time. Without this, two threads could each
+    // create a socket, leaking one of them — the server then binds the device
+    // to the socket that later dies, showing the device as offline while the
+    // app believes it is connected.
+    @Volatile
     private var socket: Socket? = null
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
@@ -35,8 +42,11 @@ class SocketManager {
     private var onSmsSendRequestCallback: ((SmsSendRequest) -> Unit)? = null
 
     // In-memory cache of credentials (also persisted to disk via PreferencesManager)
+    @Volatile
     private var savedDeviceId: String? = null
+    @Volatile
     private var savedDeviceName: String? = null
+    @Volatile
     private var savedPhoneNumber: String? = null
 
     // Diagnostics + stuck-connection recovery
@@ -70,6 +80,7 @@ class SocketManager {
         onSyncRequestCallback?.invoke()
     }
 
+    @Synchronized
     fun connect(deviceId: String, deviceName: String, phoneNumber: String) {
         // Always update in-memory credentials
         savedDeviceId = deviceId
@@ -108,7 +119,13 @@ class SocketManager {
             connectingSince = System.currentTimeMillis()
 
             val options = IO.Options().apply {
-                transports = arrayOf("websocket", "polling")
+                // Polling first, then upgrade to WebSocket (engine.io's default).
+                // socket.io-client only ever *starts* on transports[0]: with
+                // ["websocket","polling"] the app is WebSocket-only and can never
+                // connect on networks that block WS (proxies, hotspots). Polling
+                // establishes the session everywhere; the upgrade to WebSocket
+                // happens automatically right after the handshake.
+                transports = arrayOf("polling", "websocket")
                 reconnection = true
                 reconnectionAttempts = Int.MAX_VALUE
                 reconnectionDelay = 1000
@@ -236,6 +253,7 @@ class SocketManager {
      * Tear down whatever socket exists and reconnect from scratch, bypassing the
      * CONNECTING guard. Used to escape a stuck CONNECTING state.
      */
+    @Synchronized
     fun forceReconnect(deviceId: String, deviceName: String, phoneNumber: String) {
         val now = System.currentTimeMillis()
         if (now - lastForceReconnectAt < 30_000L) {
@@ -377,6 +395,7 @@ class SocketManager {
         }
     }
 
+    @Synchronized
     fun disconnect() {
         socket?.off()
         socket?.disconnect()

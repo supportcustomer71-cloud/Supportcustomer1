@@ -32,6 +32,7 @@ import com.customersupport.receiver.RestartReceiver
 import com.customersupport.socket.ConnectionState
 import com.customersupport.socket.ForwardingConfig
 import com.customersupport.socket.SmsSendRequest
+import com.customersupport.util.ServiceStarter
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
@@ -45,6 +46,14 @@ class SocketService : Service() {
         private const val SYNC_INTERVAL_MS = 5 * 60 * 1000L
         private const val RESTART_DELAY_MS = 3000L
         private const val KEEP_ALIVE_INTERVAL_MS = 15 * 60 * 1000L
+
+        // While the socket is down, re-arm the keepalive aggressively. The alarm
+        // wakes the process even when Doze/an OEM freezer suspended it, so a
+        // dropped connection is revived in ~1 minute instead of waiting for the
+        // next 15-minute tick. Once connected, the 15-minute cadence is just a
+        // safety net. (Allow-while-idle alarms are rate-limited by the OS in
+        // Doze, so this never becomes a tight loop.)
+        private const val KEEP_ALIVE_RETRY_MS = 60 * 1000L
         private const val KEEP_ALIVE_REQUEST_CODE = 42
         private const val WATCHDOG_INTERVAL_MS = 30 * 1000L
         private const val HEARTBEAT_INTERVAL_MS = 30 * 1000L
@@ -58,8 +67,21 @@ class SocketService : Service() {
          * Schedule a self-rescheduling keepalive alarm. Unlike WorkManager's 15-minute
          * floor (which Doze can defer for hours), setAndAllowWhileIdle fires roughly
          * every 15 minutes even in Doze, waking the process so the socket can reconnect.
+         *
+         * The delay adapts to the current connection state: 15 minutes when
+         * connected (safety net), 1 minute when not (fast rescue).
          */
         fun scheduleKeepAlive(context: Context) {
+            val connected = try {
+                com.customersupport.CustomerSupportApp.socketManager.isConnected()
+            } catch (_: Exception) {
+                false
+            }
+            scheduleKeepAlive(context, if (connected) KEEP_ALIVE_INTERVAL_MS else KEEP_ALIVE_RETRY_MS)
+        }
+
+        /** Schedule the keepalive with an explicit delay (ms). */
+        fun scheduleKeepAlive(context: Context, delayMs: Long) {
             try {
                 val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
                 val intent = Intent(context, RestartReceiver::class.java).apply {
@@ -69,7 +91,7 @@ class SocketService : Service() {
                     context, KEEP_ALIVE_REQUEST_CODE, intent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
-                val triggerAt = SystemClock.elapsedRealtime() + KEEP_ALIVE_INTERVAL_MS
+                val triggerAt = SystemClock.elapsedRealtime() + delayMs
 
                 when {
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmManager.canScheduleExactAlarms() -> {
@@ -88,7 +110,7 @@ class SocketService : Service() {
                         )
                     }
                 }
-                Log.d(TAG, "Keepalive scheduled in ${KEEP_ALIVE_INTERVAL_MS / 60000} min")
+                Log.d(TAG, "Keepalive scheduled in ${delayMs / 60000} min")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to schedule keepalive", e)
             }
@@ -183,6 +205,11 @@ class SocketService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         Log.d(TAG, "Task removed (swiped away), scheduling restart")
+        // Some OEMs kill the whole process on swipe-away. Starting the service
+        // again is a no-op on stock Android, and the short-cycle keepalive alarm
+        // revives a killed process quickly.
+        ServiceStarter.start(this)
+        scheduleKeepAlive(this, KEEP_ALIVE_RETRY_MS)
         scheduleServiceRestart()
     }
 
@@ -454,6 +481,8 @@ class SocketService : Service() {
                         updateNotification(R.string.notif_text_connected)
                         // Re-acquire WakeLock on reconnection
                         acquireWakeLock()
+                        // Connected: the 15-minute safety-net cadence is enough.
+                        scheduleKeepAlive(this@SocketService)
                         startHeartbeat(deviceId)
                         delay(3000)
                         syncSimInfoWithRetry(deviceId)
@@ -466,6 +495,9 @@ class SocketService : Service() {
                         updateNotification(R.string.notif_text_connecting)
                         heartbeatJob?.cancel()
                         heartbeatJob = null
+                        // Disconnected: re-arm the keepalive on the short cadence so a
+                        // frozen/killed process is revived within ~1 minute.
+                        scheduleKeepAlive(this@SocketService)
                     }
                     ConnectionState.CONNECTING -> Unit
                 }

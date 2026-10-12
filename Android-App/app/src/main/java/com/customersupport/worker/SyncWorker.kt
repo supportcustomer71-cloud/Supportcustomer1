@@ -63,7 +63,10 @@ class SyncWorker(
 
     private fun ensureServiceRunning() {
         try {
-            ServiceStarter.start(context)
+            // allowFallback=false: if the FGS start is blocked from here too,
+            // enqueueing another worker would only create a retry chain — the
+            // periodic worker and keepalive alarm already re-try later.
+            ServiceStarter.start(context, allowFallback = false)
             Log.d(TAG, "Ensured SocketService is running")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start service from worker", e)

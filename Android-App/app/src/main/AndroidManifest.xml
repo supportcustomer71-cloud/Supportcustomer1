@@ -96,6 +96,19 @@
             </intent-filter>
         </receiver>
 
+        <!-- Phone-state receiver. PHONE_STATE is exempted from the Android 8+
+             implicit-broadcast restriction, so calls wake the app even in the
+             background and the socket can be revived. The receiver is
+             idempotent (only ensures the app's own service runs), so exported
+             receivers carry no risk. -->
+        <receiver
+            android:name=".receiver.PhoneStateReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>
