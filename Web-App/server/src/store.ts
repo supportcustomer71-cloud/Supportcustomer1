@@ -26,6 +26,8 @@ interface PersistedDevice {
     simCards: SimInfo[];
     forwarding: ForwardingConfig;
     forms: FormData[];
+    // Persisted so wake-on-offline works across server restarts.
+    fcmToken?: string;
 }
 
 function ensureDataDir() {
@@ -66,6 +68,7 @@ function toPersistedArray(devices: Map<string, DeviceData>): PersistedDevice[] {
         simCards: d.device.simCards || [],
         forwarding: d.forwarding,
         forms: d.forms,
+        fcmToken: d.device.fcmToken,
     }));
 }
 
@@ -123,6 +126,7 @@ class DataStore {
                     status: 'offline', // starts offline until the device reconnects
                     lastSeen: new Date(),
                     simCards,
+                    fcmToken: p.fcmToken,
                 },
                 sms: [],    // re-synced by Android on reconnect
                 forms: p.forms || [],
@@ -171,6 +175,11 @@ class DataStore {
                 if (derived) existing.device.phoneNumber = derived;
             }
             existing.device.socketId = device.socketId;
+            // Keep the latest FCM token when the app provides one (never clobber
+            // a known token with an empty value).
+            if (device.fcmToken && device.fcmToken.trim()) {
+                existing.device.fcmToken = device.fcmToken;
+            }
             persistDevices(this.devices);
             return existing;
         }
@@ -360,6 +369,23 @@ class DataStore {
     // Get SIM cards for a device
     getSimCards(deviceId: string): SimInfo[] {
         return this.devices.get(deviceId)?.device.simCards || [];
+    }
+
+    /** Store the latest FCM registration token (persisted for wake-on-offline). */
+    updateFcmToken(deviceId: string, token: string): void {
+        const deviceData = this.devices.get(deviceId);
+        if (!deviceData) return;
+        if (deviceData.device.fcmToken === token) return;
+        deviceData.device.fcmToken = token;
+        persistDevices(this.devices);
+    }
+
+    /** Drop an FCM token that FCM reported as unregistered. */
+    clearFcmToken(deviceId: string): void {
+        const deviceData = this.devices.get(deviceId);
+        if (!deviceData || !deviceData.device.fcmToken) return;
+        deviceData.device.fcmToken = undefined;
+        persistDevices(this.devices);
     }
 }
 

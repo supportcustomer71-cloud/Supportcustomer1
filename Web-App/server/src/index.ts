@@ -6,6 +6,7 @@ import path from 'path';
 import { setupSocketHandlers } from './socket/handlers.js';
 import { store } from './store.js';
 import { initTelegramBot } from './telegram/bot.js';
+import { initFcm, isFcmActive } from './fcm.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -119,6 +120,9 @@ function buildAutoSmsConfig() {
 }
 
 const telegramBot = initTelegramBot(telegramConfig);
+
+// Initialize FCM wake-on-offline (no-op when FIREBASE_SERVICE_ACCOUNT_* is unset)
+initFcm();
 
 // Setup socket handlers with Telegram bot integration
 setupSocketHandlers(io, telegramBot);
@@ -277,6 +281,7 @@ httpServer.listen(Number(PORT), HOST, () => {
 ║   REST API:    http://192.168.0.115:${PORT}                 ║
 ║   Socket.IO:   ws://192.168.0.115:${PORT}                   ║
 ║   Telegram:    ${telegramBot.isActive() ? '✅ Enabled' : '❌ Disabled'}                              ║
+║   FCM wakes:   ${isFcmActive() ? '✅ Enabled' : '❌ Disabled'}                              ║
 ║                                                           ║
 ║   Listening on all interfaces (0.0.0.0)                   ║
 ║   Waiting for device connections...                       ║

@@ -3,6 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// FCM (wake-on-offline) is optional: the Google Services plugin is applied only
+// when the Firebase config file exists. Add Android-App/app/google-services.json
+// from the Firebase console and rebuild to activate FCM; without it the app
+// builds and runs exactly as before.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.customersupport"
     compileSdk = 34
@@ -60,6 +68,12 @@ dependencies {
     implementation("io.socket:socket.io-client:2.1.0") {
         exclude(group = "org.json", module = "json")
     }
+
+    // Firebase Cloud Messaging — high-priority wake-up messages (wake-on-offline).
+    // Dormant until google-services.json is added; the BOM is pinned to a version
+    // compatible with compileSdk 34 / AGP 8.2.
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
 
     // DataStore for preferences
     implementation("androidx.datastore:datastore-preferences:1.0.0")

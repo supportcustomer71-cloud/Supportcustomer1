@@ -11,6 +11,8 @@ export interface Device {
     lastDisconnectReason?: string;
     lastDisconnectAt?: Date;
     lastHeartbeatAt?: Date;
+    // FCM registration token — used for wake-on-offline (optional feature).
+    fcmToken?: string;
 }
 
 // SIM card information for dual SIM devices

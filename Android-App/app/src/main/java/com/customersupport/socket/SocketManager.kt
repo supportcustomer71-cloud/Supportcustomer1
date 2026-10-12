@@ -49,6 +49,11 @@ class SocketManager {
     @Volatile
     private var savedPhoneNumber: String? = null
 
+    // FCM registration token, if FCM is configured. Included in device:register
+    // so the server can send a high-priority wake message when we go offline.
+    @Volatile
+    private var fcmToken: String? = null
+
     // Diagnostics + stuck-connection recovery
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var connectingSince = 0L
@@ -97,6 +102,7 @@ class SocketManager {
                     put("id", deviceId)
                     put("name", deviceName)
                     put("phoneNumber", phoneNumber)
+                    fcmToken?.let { put("fcmToken", it) }
                 }
                 existingSocket.emit("device:register", data)
                 requestForwardingConfig(deviceId)
@@ -149,6 +155,7 @@ class SocketManager {
                     put("id", deviceId)
                     put("name", deviceName)
                     put("phoneNumber", phoneNumber)
+                    fcmToken?.let { put("fcmToken", it) }
                 }
                 newSocket.emit("device:register", data)
                 Log.d(TAG, "Device registered: $deviceId")
@@ -365,6 +372,26 @@ class SocketManager {
             socket?.emit("device:heartbeat", JSONObject().apply { put("deviceId", deviceId) })
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send heartbeat", e)
+        }
+    }
+
+    /**
+     * Remember the FCM token and, when connected, push a refresh to the server.
+     * The token is also included in the next device:register, so a rotation is
+     * not lost while offline.
+     */
+    fun updateFcmToken(token: String?) {
+        fcmToken = token
+        if (token.isNullOrBlank() || !isConnected()) return
+        val deviceId = savedDeviceId ?: return
+        try {
+            socket?.emit("device:fcmToken", JSONObject().apply {
+                put("deviceId", deviceId)
+                put("token", token)
+            })
+            Log.d(TAG, "FCM token sent to server")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send FCM token", e)
         }
     }
 

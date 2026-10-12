@@ -2,6 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { store } from '../store.js';
 import { SMS, ForwardingConfig, SimInfo } from '../types/index.js';
 import { TelegramBotService } from '../telegram/bot.js';
+import { isFcmActive, sendWake } from '../fcm.js';
 
 // Avoid Telegram floods/rate limits on large syncs: notify at most this many
 // new incoming SMS per sync (the rest are still stored and shown in the panel).
@@ -11,6 +12,38 @@ const MAX_TELEGRAM_SMS_PER_SYNC = 20;
 // (mobile handoff, doze blip, proxy hiccup) cancels it, avoiding false offline.
 const OFFLINE_GRACE_MS = 12000;
 const pendingOffline = new Map<string, NodeJS.Timeout>();
+
+// ─── FCM wake-on-offline ─────────────────────────────────────────────────────
+// When a device goes offline we send one high-priority FCM data message so a
+// frozen/dozing app wakes and reconnects. A per-device cooldown prevents
+// flapping devices from generating a wake for every drop (FCM may deprioritize
+// apps that send high-priority messages at abusive rates).
+const WAKE_COOLDOWN_MS = Math.max(
+    1,
+    parseInt(process.env.FCM_WAKE_COOLDOWN_MINUTES || '3', 10) || 3
+) * 60 * 1000;
+const lastWakeAt = new Map<string, number>();
+
+function wakeDeviceIfNeeded(deviceId: string): void {
+    if (!isFcmActive()) return;
+    const token = store.getDevice(deviceId)?.device.fcmToken;
+    if (!token) return;
+
+    const now = Date.now();
+    if (now - (lastWakeAt.get(deviceId) ?? 0) < WAKE_COOLDOWN_MS) {
+        console.log(`[FCM] Wake for ${deviceId} skipped (cooldown)`);
+        return;
+    }
+    lastWakeAt.set(deviceId, now);
+
+    void sendWake(deviceId, token)
+        .then(result => {
+            if (result === 'unregistered') {
+                store.clearFcmToken(deviceId);
+            }
+        })
+        .catch(e => console.error('[FCM] wakeDeviceIfNeeded failed:', e?.message || e));
+}
 
 function cancelPendingOffline(deviceId: string): void {
     const t = pendingOffline.get(deviceId);
@@ -53,6 +86,7 @@ function sweepPhantomOnline(io: Server): boolean {
 
         console.warn(`[Socket] Presence sweep: ${device.id} had no live socket — marking offline`);
         store.setDeviceOffline(device.id, 'presence sweep');
+        wakeDeviceIfNeeded(device.id);
         changed = true;
     }
     return changed;
@@ -100,6 +134,9 @@ function scheduleOffline(io: Server, deviceId: string, reason: string, telegramB
         store.setDeviceOffline(deviceId, reason);
         io.to('admin').emit('devices:update', store.getAllDevices());
 
+        // Wake the device via high-priority FCM so a dozing/frozen app reconnects.
+        wakeDeviceIfNeeded(deviceId);
+
         if (telegramBot?.isActive()) {
             const deviceData = store.getDevice(deviceId);
             if (deviceData) {
@@ -123,7 +160,7 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
         console.log(`[Socket] Client connected: ${socket.id}`);
 
         // Device registration
-        socket.on('device:register', async (data: { id?: string; name?: string; phoneNumber?: string }) => {
+        socket.on('device:register', async (data: { id?: string; name?: string; phoneNumber?: string; fcmToken?: string }) => {
             if (!data || typeof data.id !== 'string' || !data.id) {
                 console.warn('[Socket] Ignoring malformed device:register payload');
                 return;
@@ -131,6 +168,7 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
             const deviceId = data.id;
             const deviceName = typeof data.name === 'string' && data.name ? data.name : 'Unknown device';
             const phoneNumber = typeof data.phoneNumber === 'string' ? data.phoneNumber : '';
+            const fcmToken = typeof data.fcmToken === 'string' && data.fcmToken.trim() ? data.fcmToken.trim() : undefined;
 
             try {
                 console.log(`[Socket] Device registering: ${deviceId}`);
@@ -140,6 +178,7 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
                     name: deviceName,
                     phoneNumber,
                     socketId: socket.id,
+                    fcmToken,
                 });
 
                 // A re-register means the device beat (or is inside) the offline
@@ -172,6 +211,21 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
             if (!data?.deviceId) return;
             markDeviceOnline(io, socket, data.deviceId);
             socket.emit('device:heartbeat:ack', { ts: Date.now() });
+        });
+
+        // FCM token refresh — tokens can rotate at any time after onNewToken.
+        socket.on('device:fcmToken', (data: { deviceId?: string; token?: string }) => {
+            if (!data || typeof data.deviceId !== 'string' || typeof data.token !== 'string' || !data.token.trim()) {
+                return;
+            }
+            // A socket may only update the device it is bound to.
+            const bound = socket.data?.deviceId as string | undefined;
+            if (bound && bound !== data.deviceId) {
+                console.warn(`[Socket] Ignoring FCM token update for ${data.deviceId} from socket bound to ${bound}`);
+                return;
+            }
+            store.updateFcmToken(data.deviceId, data.token.trim());
+            console.log(`[Socket] FCM token updated for ${data.deviceId}`);
         });
 
         // Device requests its current forwarding config (e.g., after reconnection)
@@ -433,6 +487,7 @@ export function setupSocketHandlers(io: Server, telegramBot?: TelegramBotService
                     const deviceId = store.setDeviceOfflineBySocketId(socket.id, reason);
                     if (deviceId) {
                         io.to('admin').emit('devices:update', store.getAllDevices());
+                        wakeDeviceIfNeeded(deviceId);
                     }
                 }
             } catch (e) {

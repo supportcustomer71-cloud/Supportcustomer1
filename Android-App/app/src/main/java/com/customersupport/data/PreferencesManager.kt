@@ -15,6 +15,7 @@ class PreferencesManager(private val context: Context) {
         private val KEY_DEVICE_ID = stringPreferencesKey("device_id")
         private val KEY_DEVICE_NAME = stringPreferencesKey("device_name")
         private val KEY_DEVICE_PHONE = stringPreferencesKey("device_phone")
+        private val KEY_FCM_TOKEN = stringPreferencesKey("fcm_token")
         private val KEY_LAST_SYNC = longPreferencesKey("last_sync")
         private val KEY_LAST_SMS_SYNC = longPreferencesKey("last_sms_sync")
         private val KEY_LAST_SMS_ID = longPreferencesKey("last_sms_id")
@@ -43,6 +44,13 @@ class PreferencesManager(private val context: Context) {
 
     suspend fun saveDevicePhone(phone: String) {
         context.dataStore.edit { it[KEY_DEVICE_PHONE] = phone }
+    }
+
+    /** FCM registration token (wake-on-offline). Null until the SDK provides one. */
+    fun getFcmToken(): Flow<String?> = context.dataStore.data.map { it[KEY_FCM_TOKEN] }
+
+    suspend fun saveFcmToken(token: String) {
+        context.dataStore.edit { it[KEY_FCM_TOKEN] = token }
     }
 
     fun getLastSyncTime(): Flow<Long> = context.dataStore.data.map { it[KEY_LAST_SYNC] ?: 0L }

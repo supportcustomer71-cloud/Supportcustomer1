@@ -40,11 +40,12 @@ flowchart LR
 9. [Part 6 — Where the URLs live (you only change 2 places)](#-part-6--where-the-urls-live-you-only-change-2-places)
 10. [Part 7 — Telegram bot setup](#-part-7--telegram-bot-setup)
 11. [Part 7b — AutoSend SMS (optional)](#-part-7b--autosend-sms-optional)
-12. [Part 8 — Build the Android APK](#-part-8--build-the-android-apk)
-13. [Part 9 — Environment variables cheat sheet](#-part-9--environment-variables-cheat-sheet)
-14. [Deployment flow at a glance](#-deployment-flow-at-a-glance)
-15. [Troubleshooting with pictures](#-troubleshooting-with-pictures)
-16. [You are done!](#-you-are-done)
+12. [Part 7c — FCM wake-on-offline (optional)](#-part-7c--fcm-wake-on-offline-optional)
+13. [Part 8 — Build the Android APK](#-part-8--build-the-android-apk)
+14. [Part 9 — Environment variables cheat sheet](#-part-9--environment-variables-cheat-sheet)
+15. [Deployment flow at a glance](#-deployment-flow-at-a-glance)
+16. [Troubleshooting with pictures](#-troubleshooting-with-pictures)
+17. [You are done!](#-you-are-done)
 
 ---
 
@@ -198,6 +199,8 @@ Go to **Application → Environment Variables** → **Add**:
 | `AUTO_SMS_GROUP_ID` | `-1003438222106` | Group where second bot posts (negative ID) | Runtime |
 | `AUTO_SMS_BOT_ID` | `8662045518` | Second bot’s numeric ID | Runtime |
 | `AUTO_SMS_REQUEST_TTL_MINUTES` | `30` | How long a request stays valid | Runtime |
+| `FIREBASE_SERVICE_ACCOUNT_BASE64` | `eyJwcm9q…` | FCM wake-on-offline: service-account JSON base64 (Part 7c). **Optional** | Runtime |
+| `FCM_WAKE_COOLDOWN_MINUTES` | `3` | Minimum gap between wake messages per device | Runtime |
 
 > 💡 **Beginner tip:** `TELEGRAM_BOT_TOKEN` must include the colon part! If you see `404 Not Found` in logs (`[AutoSMS] Failed to resolve own bot id` at `bot.ts:95`), you pasted only `8878918973` — go back to BotFather and copy the whole string.
 
@@ -409,6 +412,48 @@ If device has 2 SIMs, you’ll be asked which SIM. Only one device is enabled at
 
 ---
 
+## 📡 Part 7c — FCM wake-on-offline (optional)
+
+When a phone is minimized, Dozing, or its process was killed, Android normally
+won’t let anything wake it — except a **high-priority Firebase Cloud Messaging
+data message**. With this enabled, the server sends one such message the moment
+a device goes offline, and the app wakes up and reconnects automatically.
+
+- **Cost:** free (Firebase Spark plan — no card required).
+- **Server:** nothing extra — your Coolify server only makes outbound calls to Google.
+- **Scale:** no device limit; default quota is 600,000 messages/minute per project.
+- **Without it:** everything still works, just with slower recovery (alarms every 1–15 min).
+
+### A. Firebase project → APK
+
+1. Open [console.firebase.google.com](https://console.firebase.google.com) → **Add project** (Analytics optional) → wait for it to finish.
+2. On the project home, click the **Android** icon → package name **`com.customersupport`** → Register.
+3. **Download `google-services.json`** → place it at `Android-App/app/google-services.json`.
+4. Rebuild the APK (Part 8). The Gradle plugin activates automatically when the file is present — no code changes.
+
+### B. Service account → Coolify
+
+5. Firebase console → ⚙️ **Project settings** → **Service accounts** → **Generate new private key** → save the JSON file.
+6. Convert it to one line:
+
+   ```bash
+   base64 -w0 service-account.json        # macOS: base64 -i service-account.json
+   ```
+
+7. Coolify → your app → **Environment Variables** → add:
+
+   | Name | Value | Build-time? |
+   |------|-------|-------------|
+   | `FIREBASE_SERVICE_ACCOUNT_BASE64` | the base64 output | **Runtime only** |
+
+8. **Redeploy.** In the logs you should see `[FCM] Enabled` and the banner line `FCM wakes: ✅ Enabled`.
+
+9. Install the new APK on the phones. From now on every device that goes offline gets an automatic wake.
+
+> 🔍 Details, safeguards (3-minute per-device cooldown, token rotation, TTL) and known limits (force-stopped apps, devices without Google Play services): **`docs/CONNECTION_STABILITY.md` §5**.
+
+---
+
 ## 📱 Part 8 — Build the Android APK
 
 ### Prerequisites
@@ -500,6 +545,8 @@ Grant all permissions on first launch (SMS, Phone, etc.) — without them forwar
 | `AUTO_SMS_GROUP_ID` / `AUTO_SMS_GROUP_IDS` | If AutoSend | `-1003438222106` or `-100111,-100222` (comma-separated) |  |
 | `AUTO_SMS_BOT_ID` / `AUTO_SMS_BOT_IDS` | If AutoSend | `8662045518` or `866...,987...` (comma-separated) |  |
 | `AUTO_SMS_REQUEST_TTL_MINUTES` | If AutoSend | `30` |  |
+| `FIREBASE_SERVICE_ACCOUNT_BASE64` | If FCM wake | `eyJwcm9q…` (base64 of the service-account JSON) | Runtime only |
+| `FCM_WAKE_COOLDOWN_MINUTES` | If FCM wake | `3` |  |
 
 ### Android (Hardcoded → rebuild APK if you change domain)
 

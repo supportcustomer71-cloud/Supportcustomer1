@@ -468,6 +468,10 @@ class SocketService : Service() {
         preferencesManager.saveDeviceName(deviceName)
         preferencesManager.saveDevicePhone(phoneNumber)
 
+        // Wake-on-offline: give SocketManager the latest FCM token (if FCM is
+        // configured) so device:register carries it to the server.
+        socketManager.updateFcmToken(preferencesManager.getFcmToken().first())
+
         socketManager.connect(deviceId, deviceName, phoneNumber)
         monitorConnectionAndSync(deviceId)
     }

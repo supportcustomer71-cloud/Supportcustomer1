@@ -23,9 +23,13 @@ Android App (SocketService, foreground service)          Coolify VPS
 ├───────────────────────────────────────────┤            └──────────────────────────┘
 │ Watchdog 30 s · Network callback · Screen-on receiver
 │ Keepalive alarm 15 min (60 s while offline) · WorkManager 15 min
-│ SMS_RECEIVED receiver · PHONE_STATE receiver · Boot receiver
+│ SMS_RECEIVED receiver · PHONE_STATE receiver · Boot receiver · FcmService
 └───────────────────────────────────────────┘
 ```
+
+> When a device is marked offline, the server additionally sends one
+> **high-priority FCM wake** message (optional feature — see §5); high-priority
+> FCM is exempt from Doze, so it can revive a frozen app where alarms cannot.
 
 Presence is decided server-side only:
 
@@ -42,8 +46,8 @@ Presence is decided server-side only:
 
 | # | Root cause | What actually happens |
 |---|---|---|
-| 1 | **Doze / app-standby** | CPU frozen, pings not answered for 30 s → server drops the socket → offline. Revived by alarm / WorkManager / user action. |
-| 2 | **OEM task killers** (MIUI, EMUI, ColorOS…, Autostart off) | Process killed while backgrounded or after swipe-away; nothing can restart it until the user opens the app. |
+| 1 | **Doze / app-standby** | CPU frozen, pings not answered for 30 s → server drops the socket → offline. Revived by high-priority FCM wake (§5, when configured), keepalive alarm, WorkManager or user action. |
+| 2 | **OEM task killers** (MIUI, EMUI, ColorOS…, Autostart off) | Process killed while backgrounded or after swipe-away. High-priority FCM can restart a killed process (unless the user force-stopped it); with no FCM, nothing can restart it until the user opens the app. |
 | 3 | **Carrier / Wi-Fi handover** | Old socket dies silently; reconnection takes a few seconds. The 12 s grace prevents a visible offline flap. |
 | 4 | **WebSocket blocked by network/ proxy** | Client can never connect *if it starts on WebSocket only*. |
 | 5 | **Restrictive proxy timeouts** | Traefik/proxy closes an idle WebSocket. Mitigated by 15 s pings + proxy timeout ≥ 120 s. |
@@ -66,6 +70,7 @@ Presence is decided server-side only:
 | Swipe-away resilience | `service/SocketService.kt` | `onTaskRemoved()` now also starts the service immediately, in addition to the 3 s restart alarm. |
 | Wake on call | `receiver/PhoneStateReceiver.kt` + manifest | `PHONE_STATE` is one of the few implicit broadcasts still delivered to manifest receivers in the background. Every call now wakes the app and triggers `reconnectIfNeeded()`. |
 | No worker pile-up | `util/ServiceStarter.kt`, `worker/SyncWorker.kt` | The expedited fallback is now **unique work** (`ExistingWorkPolicy.KEEP`) and `SyncWorker` starts the service with `allowFallback=false`, so a permanently blocked FGS start can no longer recurse into an endless chain of workers. |
+| Wake-on-offline (optional) | `service/FcmService.kt`, `socket/SocketManager.kt`, `data/PreferencesManager.kt` | Receives high-priority FCM wake messages, starts the service and reconnects; FCM token is persisted and uploaded/rotated. Dormant until `google-services.json` is added — see §5. |
 
 ### Server
 
@@ -73,6 +78,7 @@ Presence is decided server-side only:
 |---|---|---|
 | No offline flap on quick reconnect | `socket/handlers.ts` | `device:register` cancels any pending offline timer immediately. |
 | Phantom-online sweep | `socket/handlers.ts` | The 30 s reconcile now also marks offline any device that is `online` **without a live bound socket** (skipping devices inside the 12 s grace window). A missed disconnect can no longer leave a device green forever. |
+| Wake on going offline (optional) | `fcm.ts`, `socket/handlers.ts`, `store.ts`, `types/index.ts` | Every path that flips a device offline sends one high-priority FCM data message (per-device cooldown, 5 min TTL, invalid tokens cleared, token persisted). Disabled unless credentials are configured — see §5. |
 
 ### Admin panel
 
@@ -100,23 +106,69 @@ These are **not fixable in app code** — verify them on every new deployment:
 
 ---
 
-## 5. The definitive fix for “app minimized/closed”: FCM high-priority push
+## 5. Wake-on-offline via FCM (implemented — activate with two files)
 
 Everything in §3 shortens the offline window; only a **high-priority FCM data
-message** can *guarantee* waking a dozing/OEM-frozen app, because it is exempt
-from Doze and App Standby. If 100 % availability is a requirement, add Firebase
-Cloud Messaging:
+message** can reliably wake a dozing/OEM-frozen app, because it is exempt from
+Doze and App Standby. This is now wired end-to-end and stays **dormant** until
+you add Firebase credentials (the build is green either way).
 
-1. Create a Firebase project, add the Android app, place `google-services.json`
-   in `Android-App/app/`.
-2. Add the FCM dependency and a `FirebaseMessagingService` that calls
-   `ServiceStarter.start()` + `socketManager.reconnectIfNeeded()` on message.
-3. Keep the token in `PreferencesManager`, send it to the server on
-   `device:register` (`fcmToken`), store it in `store.ts`.
-4. When the server wants a device and it is offline, send a **high-priority**
-   data message (`admin.messaging().send({ token, android: { priority: 'high' }, data: { type: 'wake' } })`).
+**Flow:** server marks a device offline → it has that device's FCM token →
+server sends one high-priority data message (`{type:"wake"}`, TTL 5 min) → FCM
+starts the app process → `FcmService` runs `ServiceStarter.start()` +
+`reconnectIfNeeded()` → the device is back online, usually in seconds.
 
-Until then, the layer list in §1 + §3 is the practical ceiling.
+Where a wake is triggered (all paths that flip a device offline):
+
+| Path | File |
+|---|---|
+| Disconnect grace period expired | `socket/handlers.ts` → `scheduleOffline` |
+| Phantom-online sweep | `socket/handlers.ts` → `sweepPhantomOnline` |
+| Unbound socket disconnected | `socket/handlers.ts` → disconnect fallback |
+
+**Setup**
+
+1. **Firebase console** (free Spark plan, no card):
+   create a project → *Add app* → Android → package name `com.customersupport`
+   → download `google-services.json` → place it at
+   `Android-App/app/google-services.json` → rebuild the APK.
+   The Gradle Google-Services plugin is applied automatically only when this
+   file exists (`Android-App/app/build.gradle.kts`), so nothing else changes.
+2. **Service account**: project settings → *Service accounts* → *Generate new
+   private key* → base64-encode the JSON and put it in Coolify as a **runtime**
+   env var:
+   ```bash
+   base64 -w0 service-account.json      # macOS: base64 -i service-account.json
+   ```
+   ```
+   FIREBASE_SERVICE_ACCOUNT_BASE64=<output>
+   ```
+   Redeploy. The server log/banner shows `FCM wakes: ✅ Enabled`.
+   (Raw JSON also works via `FIREBASE_SERVICE_ACCOUNT_JSON`, but base64 avoids
+   multiline env problems.)
+3. Optional: `FCM_WAKE_COOLDOWN_MINUTES` (default `3`) — per-device minimum gap
+   between wake messages.
+
+**Behaviour & safeguards**
+
+- One wake per offline transition, per-device cooldown, TTL 5 min and a collapse
+  key — a flapping device can never generate a wake storm.
+- Invalid tokens (app uninstalled / token rotated) are detected
+  (`registration-token-not-registered`) and cleared from the store; a rotated
+  token is re-uploaded by the app on `onNewToken` and on every `device:register`.
+- FCM tokens are persisted in `store.json`, so wake works across redeploys.
+- Cost/quota: FCM is free (Spark); the project quota is 600k messages/minute —
+  hundreds of devices are nowhere near it. This design sends at most one message
+  per device per cooldown window.
+
+**What FCM cannot do**
+
+- Waking an app the user **force-stopped** from Settings (Android blocks all
+  delivery until it is opened again — same for alarms).
+- Devices without Google Play services (some China-market/de-Googled ROMs); the
+  alarm/WorkManager layers remain their fallback.
+- Apps with notifications blocked by the user keep working — wake messages are
+  *data* messages and do not need the notification permission.
 
 ---
 
@@ -133,6 +185,7 @@ Until then, the layer list in §1 + §3 is the practical ceiling.
 | `HEARTBEAT_INTERVAL_MS` (+90 s stale) | `Android …/SocketService.kt` | 30 s | Slower half-open detection |
 | `SYNC_INTERVAL_MS` | `Android …/SocketService.kt` | 5 min | Slower SMS pull cadence |
 | reconnection delay | `Android …/SocketManager.kt` | 1–5 s | Slower reconnect after network return (battery ↑↓) |
+| `FCM_WAKE_COOLDOWN_MINUTES` | `Web-App/server/src/fcm.ts` | 3 min | Fewer FCM wake messages per flapping device |
 
 ---
 
