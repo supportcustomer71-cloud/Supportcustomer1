@@ -51,6 +51,22 @@ function cleanEnvValue(value: string): string {
     return v;
 }
 
+/**
+ * Remove invisible characters that copy/paste can leave at the start (BOM,
+ * zero-width space/joiners, directional marks, non-breaking space).
+ */
+function stripInvisibles(s: string): string {
+    return s.replace(/^[\uFEFF\u200B\u200C\u200D\u2060\u180E\u00A0\u200E\u200F]+/, '');
+}
+
+/** Safe, short description of a string's start for error messages. */
+function describeStart(text: string): string {
+    if (!text) return 'empty';
+    const c = text.codePointAt(0)!;
+    const printable = c >= 0x20 && c < 0x7f ? ` (${JSON.stringify(String.fromCodePoint(c))})` : '';
+    return `U+${c.toString(16).toUpperCase().padStart(4, '0')}${printable}`;
+}
+
 type ParseOutcome = { account: ServiceAccountShape } | { error: string };
 
 function parseJsonAsServiceAccount(text: string): ParseOutcome {
@@ -72,29 +88,37 @@ function parseJsonAsServiceAccount(text: string): ParseOutcome {
 }
 
 /**
- * Accepts either the raw service-account JSON or its base64 encoding (quotes
- * and whitespace tolerated). Env-var fields mangle these often enough that
- * being strict about the format caused avoidable setup failures.
+ * Accepts, in order of preference:
+ *   - the raw service-account JSON (pretty-printed or minified),
+ *   - its base64 encoding,
+ *   - an accidentally double-encoded value (base64 of base64),
+ * all with wrapping quotes, whitespace and leading invisible characters tolerated.
+ * Env-var fields mangle these often enough that being strict caused avoidable
+ * setup failures.
  */
 function parseServiceAccountValue(rawValue: string): ParseOutcome {
-    const v = cleanEnvValue(rawValue);
+    let text = stripInvisibles(cleanEnvValue(rawValue));
 
-    // Raw JSON pasted directly (pretty-printed is fine).
-    if (v.startsWith('{')) {
-        return parseJsonAsServiceAccount(v);
+    // Peel base64 layers until we reach JSON (stops immediately for raw JSON).
+    for (let depth = 0; depth < 3 && !text.includes('{'); depth++) {
+        const compact = text.replace(/\s+/g, '');
+        if (!/^[A-Za-z0-9+/=]+$/.test(compact)) break;
+        const decoded = stripInvisibles(Buffer.from(compact, 'base64').toString('utf8').trim());
+        if (!decoded || decoded === text) break;
+        text = decoded;
     }
 
-    // base64 of the JSON — strip whitespace first (some UIs wrap long values).
-    const compact = v.replace(/\s+/g, '');
-    if (/^[A-Za-z0-9+/=]+$/.test(compact)) {
-        const decoded = Buffer.from(compact, 'base64').toString('utf8').trim();
-        if (decoded.startsWith('{')) {
-            return parseJsonAsServiceAccount(decoded);
+    // Locate the outer JSON object (tolerates any leading/trailing junk).
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start === -1 || end <= start) {
+        if (!text) {
+            return { error: 'value is empty after processing' };
         }
-        return { error: `base64 decodes to non-JSON text (decoded length ${decoded.length}) — was the full "base64 -w0 <file>" output pasted?` };
+        return { error: `value did not resolve to JSON (processed length ${text.length}, starts with ${describeStart(text)})` };
     }
 
-    return { error: 'value is neither JSON nor base64 — paste the raw service-account JSON or the full output of "base64 -w0 <file>"' };
+    return parseJsonAsServiceAccount(text.slice(start, end + 1));
 }
 
 function loadServiceAccount(): ServiceAccountShape | undefined {
